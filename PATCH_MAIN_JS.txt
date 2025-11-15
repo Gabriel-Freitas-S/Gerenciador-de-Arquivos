@@ -1,0 +1,100 @@
+ADICIONAR AO ARQUIVO src/main/main.js
+==========================================
+
+ADICIONAR DENTRO DA FUNCAO setupIpcHandlers()
+APOS OS HANDLERS EXISTENTES (linha 400 aproximadamente)
+
+COPIAR ESTE CODIGO:
+
+  // ============================================
+  // ALERTAS - ATUALIZACAO AUTOMATICA
+  // ============================================
+  
+  ipcMain.handle('alertas:atualizar', async () => {
+    try {
+      // Atualizar dias decorridos de todas retiradas ativas
+      db.prepare(`
+        UPDATE retiradas_com_pessoas 
+        SET dias_decorridos = CAST((julianday('now') - julianday(data_retirada)) AS INTEGER)
+        WHERE status = 'ativo'
+      `).run();
+      
+      // Buscar retiradas ativas com status do funcionario
+      const retiradas = db.prepare(`
+        SELECT r.*, f.status as funcionario_status
+        FROM retiradas_com_pessoas r
+        JOIN funcionarios f ON r.funcionario_id = f.id
+        WHERE r.status = 'ativo'
+      `).all();
+      
+      // Preparar insert de alerta
+      const insertAlerta = db.prepare(`
+        INSERT OR IGNORE INTO alertas (retirada_id, tipo_alerta, severidade, resolvido)
+        VALUES (?, ?, ?, 0)
+      `);
+      
+      // Criar alertas para retiradas vencidas
+      for (const ret of retiradas) {
+        const prazo = ret.funcionario_status === 'Demitido' ? 3 : 7;
+        
+        if (ret.dias_decorridos >= prazo) {
+          // Prazo vencido - alerta critico
+          insertAlerta.run(
+            ret.id,
+            `Prazo de devolucao vencido ha ${ret.dias_decorridos - prazo} dias`,
+            'critico'
+          );
+        } else if (ret.dias_decorridos >= prazo - 2) {
+          // Prazo se aproximando - alerta aviso
+          insertAlerta.run(
+            ret.id,
+            `Prazo de devolucao se aproximando (${prazo - ret.dias_decorridos} dias restantes)`,
+            'aviso'
+          );
+        }
+      }
+      
+      console.log(`Alertas atualizados: ${retiradas.length} retiradas verificadas`);
+      return { success: true, message: 'Alertas atualizados' };
+    } catch (error) {
+      console.error('Erro ao atualizar alertas:', error);
+      return { success: false, message: error.message };
+    }
+  });
+  
+  // ============================================
+  // USUARIOS - ATUALIZAR MENUS/PERMISSOES
+  // ============================================
+  
+  ipcMain.handle('usuarios:atualizar-menus', async (event, usuarioId, menuIds) => {
+    try {
+      // Preparar statements
+      const deleteMenus = db.prepare('DELETE FROM usuarios_menus WHERE usuario_id = ?');
+      const insertMenu = db.prepare('INSERT INTO usuarios_menus (usuario_id, menu_id) VALUES (?, ?)');
+      
+      // Executar em transacao
+      const transaction = db.transaction(() => {
+        // Deletar permissoes antigas
+        deleteMenus.run(usuarioId);
+        
+        // Inserir novas permissoes
+        for (const menuId of menuIds) {
+          insertMenu.run(usuarioId, menuId);
+        }
+      });
+      
+      transaction();
+      
+      console.log(`Permissoes atualizadas para usuario ${usuarioId}: ${menuIds.length} menus`);
+      return { success: true, message: 'Permissoes atualizadas' };
+    } catch (error) {
+      console.error('Erro ao atualizar menus do usuario:', error);
+      return { success: false, message: error.message };
+    }
+  });
+
+
+IMPORTANTE:
+- Adicionar DEPOIS dos outros IPC handlers
+- Adicionar DENTRO da funcao setupIpcHandlers()
+- NAO esquecer de fechar corretamente as chaves
