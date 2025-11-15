@@ -14,7 +14,7 @@ class HospitalFileManagementApp {
     this.db = new DatabaseLayer();
     this.ui = new UIManager(this.auth, this.db);
     
-    console.log('🏥 Sistema de Gerenciamento de Arquivos Hospital - Inicializando...');
+    console.log('🏭 Sistema de Gerenciamento de Arquivos Hospital - Inicializando...');
   }
 
   /**
@@ -106,9 +106,13 @@ class HospitalFileManagementApp {
     // ==========================================
     
     setInterval(async () => {
-      await this.db.atualizarAlertas();
-      if (this.ui.currentView === 'dashboard') {
-        await this.ui.renderDashboard();
+      try {
+        await this.db.atualizarAlertas();
+        if (this.ui.currentView === 'dashboard') {
+          await this.ui.renderDashboard();
+        }
+      } catch (error) {
+        console.warn('Erro na atualização periódica de alertas:', error);
       }
     }, 60000); // A cada minuto
   }
@@ -790,12 +794,12 @@ class HospitalFileManagementApp {
   }
 
   /**
-   * Carrega menus disponíveis do sistema
+   * Carrega menus disponíveis do sistema - CORRIGIDO
    */
   async carregarMenusDisponiveis() {
     try {
-      const menus = await window.electronAPI.menusListar();
-      return menus;
+      const result = await window.electronAPI.getMenus();
+      return result.success ? result.data : [];
     } catch (error) {
       console.error('Erro ao carregar menus:', error);
       return [];
@@ -803,12 +807,13 @@ class HospitalFileManagementApp {
   }
 
   /**
-   * Carrega menus que o usuário tem acesso
+   * Carrega menus que o usuário tem acesso - CORRIGIDO
    */
   async carregarMenusUsuario(usuarioId) {
     try {
-      const menusUsuario = await window.electronAPI.usuariosMenus(usuarioId);
-      return menusUsuario.map(m => m.menu_id);
+      const result = await window.electronAPI.getMenusByUsuario(usuarioId);
+      const menusData = result.success ? result.data : [];
+      return menusData.map(m => m.id || m.menu_id);
     } catch (error) {
       console.error('Erro ao carregar menus do usuário:', error);
       return [];
