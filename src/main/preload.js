@@ -1,31 +1,29 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 /**
- * Preload Script
+ * Preload Script - CORRIGIDO
  * 
  * Este script cria uma ponte segura entre o Main Process e o Renderer Process
  * usando contextBridge. Expõe apenas uma API controlada e limitada para o renderer.
  * 
- * SEGURANÇA:
- * - nodeIntegration: false (no renderer)
- * - contextIsolation: true (sandboxing)
- * - API limitada e validada
- * - Nenhum acesso direto ao Node.js no renderer
+ * CORREÇÕES APLICADAS:
+ * - Campos SQL atualizados para corresponder ao schema_perfis.sql
+ * - posto_graduacao → especialidade
+ * - categoria → tipo (em envelopes)
+ * - observacoes → motivo_rejeicao (em solicitacoes)
+ * - prazo_devolucao → data_prevista_retorno
+ * - data_devolucao → data_retorno
+ * - envelope_id → item_id (em movimentacoes)
+ * - data_movimentacao → data
+ * - Removidos campos inexistentes: localizacao_atual, data_resolucao
  */
 
-// Expor API segura para o renderer através do window.electronAPI
 contextBridge.exposeInMainWorld('electronAPI', {
   
   // ============================================
   // AUTENTICAÇÃO
   // ============================================
   
-  /**
-   * Realiza login do usuário
-   * @param {string} username - Nome de usuário
-   * @param {string} password - Senha
-   * @returns {Promise<{success: boolean, user?: object, message?: string}>}
-   */
   login: (username, password) => {
     return ipcRenderer.invoke('auth:login', username, password);
   },
@@ -34,344 +32,446 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // DATABASE - OPERAÇÕES GENÉRICAS
   // ============================================
   
-  /**
-   * Executa query SELECT genérica
-   * @param {string} sql - Query SQL
-   * @param {Array} params - Parâmetros da query
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
   query: (sql, params = []) => {
     return ipcRenderer.invoke('db:query', sql, params);
   },
   
-  /**
-   * Executa comando SQL genérico (INSERT, UPDATE, DELETE)
-   * @param {string} sql - Comando SQL
-   * @param {Array} params - Parâmetros do comando
-   * @returns {Promise<{success: boolean, changes?: number, lastInsertRowid?: number, message?: string}>}
-   */
   execute: (sql, params = []) => {
     return ipcRenderer.invoke('db:execute', sql, params);
   },
   
   // ============================================
-  // MÉTODOS ESPECÍFICOS - FUNCIONÁRIOS
+  // FUNCIONÁRIOS - CORRIGIDO
   // ============================================
   
-  /**
-   * Busca todos os funcionários ativos
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
   getFuncionarios: () => {
     return ipcRenderer.invoke('db:getFuncionarios');
   },
   
-  /**
-   * Busca funcionário por ID
-   * @param {number} id - ID do funcionário
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
   getFuncionarioById: (id) => {
     return ipcRenderer.invoke('db:query', 
       'SELECT * FROM funcionarios WHERE id = ?', [id]);
   },
   
-  /**
-   * Adiciona novo funcionário
-   * @param {object} funcionario - Dados do funcionário
-   * @returns {Promise<{success: boolean, lastInsertRowid?: number, message?: string}>}
-   */
+  // CORRIGIDO: Adicionados campos departamento e data_admissao
   addFuncionario: (funcionario) => {
     return ipcRenderer.invoke('db:execute',
-      `INSERT INTO funcionarios (nome, posto_graduacao, especialidade, status) 
-       VALUES (?, ?, ?, ?)`,
-      [funcionario.nome, funcionario.posto_graduacao, funcionario.especialidade, 'Ativo']);
+      `INSERT INTO funcionarios (nome, departamento, especialidade, data_admissao, status) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [funcionario.nome, 
+       funcionario.departamento || 'Não especificado', 
+       funcionario.especialidade || '', 
+       funcionario.data_admissao || new Date().toISOString().split('T')[0],
+       'Ativo']);
   },
   
-  /**
-   * Atualiza funcionário existente
-   * @param {number} id - ID do funcionário
-   * @param {object} funcionario - Dados atualizados
-   * @returns {Promise<{success: boolean, changes?: number, message?: string}>}
-   */
+  // CORRIGIDO: especialidade ao invés de posto_graduacao
   updateFuncionario: (id, funcionario) => {
     return ipcRenderer.invoke('db:execute',
       `UPDATE funcionarios 
-       SET nome = ?, posto_graduacao = ?, especialidade = ?, status = ? 
+       SET nome = ?, departamento = ?, especialidade = ?, status = ? 
        WHERE id = ?`,
-      [funcionario.nome, funcionario.posto_graduacao, funcionario.especialidade, 
+      [funcionario.nome, funcionario.departamento, funcionario.especialidade, 
        funcionario.status, id]);
   },
   
+  demitirFuncionario: (id, dataDemissao) => {
+    return ipcRenderer.invoke('db:execute',
+      `UPDATE funcionarios 
+       SET status = 'Demitido', data_demissao = ? 
+       WHERE id = ?`,
+      [dataDemissao, id]);
+  },
+  
   // ============================================
-  // MÉTODOS ESPECÍFICOS - GAVETEIROS E GAVETAS
+  // GAVETEIROS E GAVETAS
   // ============================================
   
-  /**
-   * Busca todos os gaveteiros
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
   getGaveteiros: () => {
     return ipcRenderer.invoke('db:getGaveteiros');
   },
   
-  /**
-   * Busca gavetas de um gaveteiro específico
-   * @param {number} gaveteiroId - ID do gaveteiro
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
   getGavetas: (gaveteiroId) => {
     return ipcRenderer.invoke('db:getGavetas', gaveteiroId);
   },
   
-  /**
-   * Adiciona novo gaveteiro
-   * @param {object} gaveteiro - Dados do gaveteiro
-   * @returns {Promise<{success: boolean, lastInsertRowid?: number, message?: string}>}
-   */
   addGaveteiro: (gaveteiro) => {
     return ipcRenderer.invoke('db:execute',
       'INSERT INTO gaveteiros (nome, localizacao, descricao) VALUES (?, ?, ?)',
       [gaveteiro.nome, gaveteiro.localizacao, gaveteiro.descricao]);
   },
   
-  /**
-   * Adiciona nova gaveta a um gaveteiro
-   * @param {object} gaveta - Dados da gaveta
-   * @returns {Promise<{success: boolean, lastInsertRowid?: number, message?: string}>}
-   */
+  updateGaveteiro: (id, gaveteiro) => {
+    return ipcRenderer.invoke('db:execute',
+      'UPDATE gaveteiros SET nome = ?, localizacao = ?, descricao = ? WHERE id = ?',
+      [gaveteiro.nome, gaveteiro.localizacao, gaveteiro.descricao, id]);
+  },
+  
   addGaveta: (gaveta) => {
     return ipcRenderer.invoke('db:execute',
       'INSERT INTO gavetas (gaveteiro_id, numero, capacidade, ocupacao_atual) VALUES (?, ?, ?, ?)',
       [gaveta.gaveteiro_id, gaveta.numero, gaveta.capacidade || 50, 0]);
   },
   
-  // ============================================
-  // MÉTODOS ESPECÍFICOS - PASTAS E ENVELOPES
-  // ============================================
-  
-  /**
-   * Busca pastas de uma gaveta específica
-   * @param {number} gavetaId - ID da gaveta
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
-  getPastas: (gavetaId) => {
-    return ipcRenderer.invoke('db:getPastas', gavetaId);
+  updateGaveta: (id, gaveta) => {
+    return ipcRenderer.invoke('db:execute',
+      'UPDATE gavetas SET numero = ?, capacidade = ? WHERE id = ?',
+      [gaveta.numero, gaveta.capacidade, id]);
   },
   
-  /**
-   * Busca envelopes de uma pasta específica
-   * @param {number} pastaId - ID da pasta
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
+  // ============================================
+  // PASTAS E ENVELOPES - CORRIGIDO
+  // ============================================
+  
+  getPastas: (gavetaId) => {
+    if (gavetaId) {
+      return ipcRenderer.invoke('db:query',
+        `SELECT p.*, f.nome as funcionario_nome 
+         FROM pastas p 
+         JOIN funcionarios f ON p.funcionario_id = f.id 
+         WHERE p.gaveta_id = ? AND p.ativa = 1
+         ORDER BY p.ordem`,
+        [gavetaId]);
+    }
+    return ipcRenderer.invoke('db:query',
+      `SELECT p.*, f.nome as funcionario_nome 
+       FROM pastas p 
+       JOIN funcionarios f ON p.funcionario_id = f.id 
+       WHERE p.ativa = 1
+       ORDER BY p.ordem`);
+  },
+  
+  getPastaById: (id) => {
+    return ipcRenderer.invoke('db:query',
+      `SELECT p.*, f.nome as funcionario_nome, f.departamento 
+       FROM pastas p 
+       JOIN funcionarios f ON p.funcionario_id = f.id 
+       WHERE p.id = ?`,
+      [id]);
+  },
+  
+  addPasta: (pasta) => {
+    return ipcRenderer.invoke('db:execute',
+      `INSERT INTO pastas (gaveta_id, funcionario_id, nome, data_criacao, ordem, ativa, arquivo_morto) 
+       VALUES (?, ?, ?, ?, ?, 1, 0)`,
+      [pasta.gaveta_id, 
+       pasta.funcionario_id, 
+       pasta.nome, 
+       pasta.data_criacao || new Date().toISOString().split('T')[0],
+       pasta.ordem || 0]);
+  },
+  
+  updatePasta: (id, pasta) => {
+    return ipcRenderer.invoke('db:execute',
+      'UPDATE pastas SET gaveta_id = ?, nome = ?, ordem = ? WHERE id = ?',
+      [pasta.gaveta_id, pasta.nome, pasta.ordem, id]);
+  },
+  
+  arquivarPasta: (id) => {
+    return ipcRenderer.invoke('db:execute',
+      'UPDATE pastas SET arquivo_morto = 1, ativa = 0 WHERE id = ?',
+      [id]);
+  },
+  
+  getPastasArquivoMorto: () => {
+    return ipcRenderer.invoke('db:query',
+      `SELECT p.*, f.nome as funcionario_nome 
+       FROM pastas p 
+       JOIN funcionarios f ON p.funcionario_id = f.id 
+       WHERE p.arquivo_morto = 1
+       ORDER BY p.created_at DESC`);
+  },
+  
+  // CORRIGIDO: tipo ao invés de categoria, removido localizacao_atual
   getEnvelopes: (pastaId) => {
     return ipcRenderer.invoke('db:query',
       `SELECT e.*, 
-        CASE WHEN e.localizacao_atual = 'na_gaveta' THEN 'Disponível' ELSE 'Retirado' END as status_display
+        CASE WHEN e.status = 'presente' THEN 'Disponível' ELSE 'Retirado' END as status_display
        FROM envelopes e 
        WHERE e.pasta_id = ? 
-       ORDER BY e.categoria`,
+       ORDER BY e.tipo`,
       [pastaId]);
   },
   
-  /**
-   * Adiciona nova pasta
-   * @param {object} pasta - Dados da pasta
-   * @returns {Promise<{success: boolean, lastInsertRowid?: number, message?: string}>}
-   */
-  addPasta: (pasta) => {
+  getEnvelopesByPasta: (pastaId) => {
+    return ipcRenderer.invoke('db:query',
+      'SELECT * FROM envelopes WHERE pasta_id = ? ORDER BY tipo',
+      [pastaId]);
+  },
+  
+  updateEnvelopeStatus: (id, status) => {
     return ipcRenderer.invoke('db:execute',
-      'INSERT INTO pastas (gaveta_id, funcionario_id, ordem, ativa) VALUES (?, ?, ?, ?)',
-      [pasta.gaveta_id, pasta.funcionario_id, pasta.ordem, 1]);
+      'UPDATE envelopes SET status = ? WHERE id = ?',
+      [status, id]);
   },
   
   // ============================================
-  // MÉTODOS ESPECÍFICOS - SOLICITAÇÕES
+  // SOLICITAÇÕES - CORRIGIDO
   // ============================================
   
-  /**
-   * Busca solicitações pendentes
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
   getSolicitacoes: () => {
     return ipcRenderer.invoke('db:getSolicitacoes');
   },
   
-  /**
-   * Cria nova solicitação de retirada
-   * @param {object} solicitacao - Dados da solicitação
-   * @returns {Promise<{success: boolean, lastInsertRowid?: number, message?: string}>}
-   */
-  addSolicitacao: (solicitacao) => {
-    return ipcRenderer.invoke('db:execute',
-      `INSERT INTO solicitacoes (funcionario_id, usuario_id, motivo, status, data_solicitacao) 
-       VALUES (?, ?, ?, ?, datetime('now'))`,
-      [solicitacao.funcionario_id, solicitacao.usuario_id, solicitacao.motivo, 'pendente']);
+  getSolicitacoesPendentes: () => {
+    return ipcRenderer.invoke('db:query',
+      `SELECT s.*, f.nome as funcionario_nome, u.username 
+       FROM solicitacoes s 
+       JOIN funcionarios f ON s.funcionario_id = f.id 
+       JOIN usuarios u ON s.usuario_id = u.id 
+       WHERE s.status = 'pendente' 
+       ORDER BY s.data_solicitacao DESC`);
   },
   
-  /**
-   * Aprova solicitação de retirada
-   * @param {number} solicitacaoId - ID da solicitação
-   * @param {number} usuarioId - ID do usuário que aprovou
-   * @returns {Promise<{success: boolean, changes?: number, message?: string}>}
-   */
-  aprovarSolicitacao: (solicitacaoId, usuarioId) => {
+  createSolicitacao: (solicitacao) => {
+    return ipcRenderer.invoke('db:execute',
+      `INSERT INTO solicitacoes (funcionario_id, usuario_id, motivo, status, data_solicitacao) 
+       VALUES (?, ?, ?, 'pendente', datetime('now'))`,
+      [solicitacao.funcionario_id, solicitacao.usuario_id, solicitacao.motivo]);
+  },
+  
+  aprovarSolicitacao: (solicitacaoId) => {
     return ipcRenderer.invoke('db:execute',
       `UPDATE solicitacoes 
-       SET status = 'aprovado', data_aprovacao = datetime('now') 
+       SET status = 'aprovada', data_aprovacao = datetime('now') 
        WHERE id = ?`,
       [solicitacaoId]);
   },
   
-  /**
-   * Rejeita solicitação de retirada
-   * @param {number} solicitacaoId - ID da solicitação
-   * @param {string} motivo - Motivo da rejeição
-   * @returns {Promise<{success: boolean, changes?: number, message?: string}>}
-   */
+  // CORRIGIDO: motivo_rejeicao ao invés de observacoes
   rejeitarSolicitacao: (solicitacaoId, motivo) => {
     return ipcRenderer.invoke('db:execute',
       `UPDATE solicitacoes 
-       SET status = 'rejeitado', observacoes = ? 
+       SET status = 'rejeitada', motivo_rejeicao = ? 
        WHERE id = ?`,
       [motivo, solicitacaoId]);
   },
   
   // ============================================
-  // MÉTODOS ESPECÍFICOS - RETIRADAS
+  // RETIRADAS - CORRIGIDO
   // ============================================
   
-  /**
-   * Busca retiradas ativas
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
   getRetiradas: () => {
     return ipcRenderer.invoke('db:getRetiradas');
   },
   
-  /**
-   * Registra nova retirada
-   * @param {object} retirada - Dados da retirada
-   * @returns {Promise<{success: boolean, lastInsertRowid?: number, message?: string}>}
-   */
-  addRetirada: (retirada) => {
-    return ipcRenderer.invoke('db:execute',
-      `INSERT INTO retiradas_com_pessoas 
-       (funcionario_id, usuario_id, motivo, data_retirada, prazo_devolucao, status) 
-       VALUES (?, ?, ?, datetime('now'), datetime('now', '+7 days'), 'ativo')`,
-      [retirada.funcionario_id, retirada.usuario_id, retirada.motivo]);
+  getRetiradasAtivas: () => {
+    return ipcRenderer.invoke('db:query',
+      `SELECT r.*, f.nome as funcionario_nome, u.username,
+        p.nome as pasta_nome
+       FROM retiradas_com_pessoas r 
+       JOIN funcionarios f ON r.funcionario_id = f.id 
+       JOIN usuarios u ON r.usuario_id = u.id 
+       JOIN pastas p ON r.pasta_id = p.id
+       WHERE r.status = 'ativo' 
+       ORDER BY r.data_retirada DESC`);
   },
   
-  /**
-   * Finaliza retirada (devolução)
-   * @param {number} retiradaId - ID da retirada
-   * @returns {Promise<{success: boolean, changes?: number, message?: string}>}
-   */
+  getRetiradasByUsuario: (usuarioId) => {
+    return ipcRenderer.invoke('db:query',
+      `SELECT r.*, f.nome as funcionario_nome, p.nome as pasta_nome
+       FROM retiradas_com_pessoas r 
+       JOIN funcionarios f ON r.funcionario_id = f.id 
+       JOIN pastas p ON r.pasta_id = p.id
+       WHERE r.usuario_id = ? AND r.status = 'ativo' 
+       ORDER BY r.data_retirada DESC`,
+      [usuarioId]);
+  },
+  
+  // CORRIGIDO: data_prevista_retorno ao invés de prazo_devolucao
+  createRetirada: (retirada) => {
+    return ipcRenderer.invoke('db:execute',
+      `INSERT INTO retiradas_com_pessoas 
+       (pasta_id, funcionario_id, usuario_id, data_retirada, data_prevista_retorno, status, dias_decorridos) 
+       VALUES (?, ?, ?, datetime('now'), datetime('now', '+7 days'), 'ativo', 0)`,
+      [retirada.pasta_id, retirada.funcionario_id, retirada.usuario_id]);
+  },
+  
+  // CORRIGIDO: data_retorno ao invés de data_devolucao
   finalizarRetirada: (retiradaId) => {
     return ipcRenderer.invoke('db:execute',
       `UPDATE retiradas_com_pessoas 
-       SET status = 'devolvido', data_devolucao = datetime('now') 
+       SET status = 'devolvido', data_retorno = datetime('now') 
        WHERE id = ?`,
       [retiradaId]);
   },
   
+  atualizarDiasRetiradas: () => {
+    return ipcRenderer.invoke('db:execute',
+      `UPDATE retiradas_com_pessoas 
+       SET dias_decorridos = CAST((julianday('now') - julianday(data_retirada)) AS INTEGER)
+       WHERE status = 'ativo'`);
+  },
+  
   // ============================================
-  // MÉTODOS ESPECÍFICOS - ALERTAS
+  // ALERTAS - CORRIGIDO
   // ============================================
   
-  /**
-   * Busca alertas não resolvidos
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
   getAlertas: () => {
     return ipcRenderer.invoke('db:getAlertas');
   },
   
-  /**
-   * Marca alerta como resolvido
-   * @param {number} alertaId - ID do alerta
-   * @returns {Promise<{success: boolean, changes?: number, message?: string}>}
-   */
+  getAlertasAtivos: () => {
+    return ipcRenderer.invoke('db:query',
+      `SELECT a.*, r.funcionario_id, f.nome as funcionario_nome,
+        r.data_prevista_retorno, r.dias_decorridos
+       FROM alertas a 
+       JOIN retiradas_com_pessoas r ON a.retirada_id = r.id 
+       JOIN funcionarios f ON r.funcionario_id = f.id 
+       WHERE a.resolvido = 0 
+       ORDER BY a.severidade DESC, a.data_criacao DESC`);
+  },
+  
+  // CORRIGIDO: Removido data_resolucao que não existe
   resolverAlerta: (alertaId) => {
     return ipcRenderer.invoke('db:execute',
-      'UPDATE alertas SET resolvido = 1, data_resolucao = datetime(\'now\') WHERE id = ?',
+      'UPDATE alertas SET resolvido = 1 WHERE id = ?',
       [alertaId]);
   },
   
-  // ============================================
-  // MÉTODOS ESPECÍFICOS - ESTATÍSTICAS
-  // ============================================
-  
-  /**
-   * Busca estatísticas para o dashboard
-   * @returns {Promise<{success: boolean, data?: object, message?: string}>}
-   */
-  getEstatisticas: () => {
-    return ipcRenderer.invoke('db:getEstatisticas');
+  criarAlerta: (retiradaId, tipoAlerta, severidade) => {
+    return ipcRenderer.invoke('db:execute',
+      `INSERT INTO alertas (retirada_id, tipo_alerta, severidade, resolvido) 
+       VALUES (?, ?, ?, 0)`,
+      [retiradaId, tipoAlerta, severidade]);
   },
   
-  /**
-   * Busca movimentações recentes
-   * @param {number} limit - Limite de registros
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
-  getMovimentacoesRecentes: (limit = 10) => {
+  // ============================================
+  // MOVIMENTAÇÕES - CORRIGIDO
+  // ============================================
+  
+  // CORRIGIDO: item_id e data ao invés de envelope_id e data_movimentacao
+  getMovimentacoes: (limit = 100) => {
     return ipcRenderer.invoke('db:query',
-      `SELECT m.*, e.categoria, p.funcionario_id, f.nome as funcionario_nome, u.username
+      `SELECT m.*, u.username,
+        CASE 
+          WHEN m.tipo_item = 'pasta' THEN (SELECT nome FROM pastas WHERE id = m.item_id)
+          WHEN m.tipo_item = 'envelope' THEN (SELECT tipo FROM envelopes WHERE id = m.item_id)
+        END as item_nome
        FROM movimentacoes m
-       JOIN envelopes e ON m.envelope_id = e.id
-       JOIN pastas p ON e.pasta_id = p.id
-       JOIN funcionarios f ON p.funcionario_id = f.id
        JOIN usuarios u ON m.usuario_id = u.id
-       ORDER BY m.data_movimentacao DESC
+       ORDER BY m.data DESC
        LIMIT ?`,
       [limit]);
   },
   
+  registrarMovimentacao: (movimentacao) => {
+    return ipcRenderer.invoke('db:execute',
+      `INSERT INTO movimentacoes (item_id, tipo_item, acao, usuario_id, motivo, descricao) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [movimentacao.item_id, 
+       movimentacao.tipo_item, 
+       movimentacao.acao, 
+       movimentacao.usuario_id, 
+       movimentacao.motivo,
+       movimentacao.descricao || '']);
+  },
+  
   // ============================================
-  // MÉTODOS ESPECÍFICOS - LOGS
+  // USUÁRIOS - Admin
   // ============================================
   
-  /**
-   * Registra log de atividade
-   * @param {object} log - Dados do log
-   * @returns {Promise<{success: boolean, lastInsertRowid?: number, message?: string}>}
-   */
+  getUsuarios: () => {
+    return ipcRenderer.invoke('db:query',
+      `SELECT u.*, p.nome as perfil_nome, f.nome as funcionario_nome 
+       FROM usuarios u 
+       LEFT JOIN perfis p ON u.perfil_id = p.id
+       LEFT JOIN funcionarios f ON u.funcionario_id = f.id
+       ORDER BY u.username`);
+  },
+  
+  addUsuario: (usuario) => {
+    return ipcRenderer.invoke('db:execute',
+      'INSERT INTO usuarios (username, senha, perfil_id, funcionario_id, ativo) VALUES (?, ?, ?, ?, 1)',
+      [usuario.username, usuario.senha, usuario.perfil_id, usuario.funcionario_id || null]);
+  },
+  
+  updateUsuario: (id, usuario) => {
+    return ipcRenderer.invoke('db:execute',
+      'UPDATE usuarios SET username = ?, perfil_id = ?, funcionario_id = ? WHERE id = ?',
+      [usuario.username, usuario.perfil_id, usuario.funcionario_id || null, id]);
+  },
+  
+  updateUsuarioSenha: (id, novaSenha) => {
+    return ipcRenderer.invoke('db:execute',
+      'UPDATE usuarios SET senha = ? WHERE id = ?',
+      [novaSenha, id]);
+  },
+  
+  toggleUsuarioStatus: (id, ativo) => {
+    return ipcRenderer.invoke('db:execute',
+      'UPDATE usuarios SET ativo = ? WHERE id = ?',
+      [ativo ? 1 : 0, id]);
+  },
+  
+  // ============================================
+  // PERFIS DE ACESSO
+  // ============================================
+  
+  getPerfis: () => {
+    return ipcRenderer.invoke('perfis:listar');
+  },
+  
+  getPerfilById: (perfilId) => {
+    return ipcRenderer.invoke('perfis:buscar', perfilId);
+  },
+  
+  createPerfil: (nome, descricao, menuIds) => {
+    return ipcRenderer.invoke('perfis:criar', nome, descricao, menuIds);
+  },
+  
+  updatePerfil: (perfilId, nome, descricao, menuIds) => {
+    return ipcRenderer.invoke('perfis:atualizar', perfilId, nome, descricao, menuIds);
+  },
+  
+  deletePerfil: (perfilId) => {
+    return ipcRenderer.invoke('perfis:excluir', perfilId);
+  },
+  
+  // ============================================
+  // MENUS
+  // ============================================
+  
+  getMenus: () => {
+    return ipcRenderer.invoke('menus:listar');
+  },
+  
+  getMenusByUsuario: (usuarioId) => {
+    return ipcRenderer.invoke('usuarios:menus', usuarioId);
+  },
+  
+  getUsuarioPerfilCompleto: (usuarioId) => {
+    return ipcRenderer.invoke('usuarios:perfil-completo', usuarioId);
+  },
+  
+  // ============================================
+  // ESTATÍSTICAS
+  // ============================================
+  
+  getEstatisticas: () => {
+    return ipcRenderer.invoke('db:getEstatisticas');
+  },
+  
+  // ============================================
+  // LOGS
+  // ============================================
+  
   addLog: (log) => {
     return ipcRenderer.invoke('db:execute',
       `INSERT INTO logs (usuario_id, acao, tabela_afetada, registro_id, detalhes)
        VALUES (?, ?, ?, ?, ?)`,
-      [log.usuario_id, log.acao, log.tabela_afetada, log.registro_id, log.detalhes]);
+      [log.usuario_id, log.acao, log.tabela_afetada || null, log.registro_id || null, log.detalhes || null]);
   },
   
-  /**
-   * Busca logs de auditoria
-   * @param {object} filtros - Filtros opcionais (usuario_id, tabela, data_inicio, data_fim)
-   * @returns {Promise<{success: boolean, data?: Array, message?: string}>}
-   */
-  getLogs: (filtros = {}) => {
-    let sql = `
-      SELECT l.*, u.username 
-      FROM logs l 
-      JOIN usuarios u ON l.usuario_id = u.id 
-      WHERE 1=1
-    `;
-    const params = [];
-    
-    if (filtros.usuario_id) {
-      sql += ' AND l.usuario_id = ?';
-      params.push(filtros.usuario_id);
-    }
-    
-    if (filtros.tabela) {
-      sql += ' AND l.tabela_afetada = ?';
-      params.push(filtros.tabela);
-    }
-    
-    sql += ' ORDER BY l.timestamp DESC LIMIT 100';
-    
-    return ipcRenderer.invoke('db:query', sql, params);
+  getLogs: (limit = 100) => {
+    return ipcRenderer.invoke('db:query',
+      `SELECT l.*, u.username 
+       FROM logs l 
+       LEFT JOIN usuarios u ON l.usuario_id = u.id 
+       ORDER BY l.timestamp DESC 
+       LIMIT ?`,
+      [limit]);
   }
 });
 
-console.log('Preload script carregado: API segura exposta para o renderer');
+console.log('Preload script corrigido carregado: API atualizada para schema_perfis.sql');
