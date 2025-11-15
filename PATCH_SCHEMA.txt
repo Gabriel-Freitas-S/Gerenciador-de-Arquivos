@@ -1,0 +1,27 @@
+ADICIONAR AO ARQUIVO src/db/schema_perfis.sql
+==========================================
+
+ADICIONAR APOS A TABELA perfis_menus (linha 59 aproximadamente):
+
+-- ============================================
+-- TABELA: usuarios_menus (NOVA)
+-- ============================================
+-- Relacionamento N:N entre usuarios e menus
+-- Permissoes individuais por usuario
+-- ============================================
+CREATE TABLE usuarios_menus (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL,
+    menu_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    FOREIGN KEY (menu_id) REFERENCES menus(id) ON DELETE CASCADE,
+    UNIQUE(usuario_id, menu_id)
+);
+
+
+ADICIONAR NA SECAO DE INDICES (linha 248 aproximadamente, após idx_perfis_menus_menu):
+
+-- Usuarios menus
+CREATE INDEX idx_usuarios_menus_usuario ON usuarios_menus(usuario_id);
+CREATE INDEX idx_usuarios_menus_menu ON usuarios_menus(menu_id);

@@ -1,0 +1,19 @@
+CORRIGIR ARQUIVO src/renderer/js/app.js
+==========================================
+
+LINHA 537:
+TROCAR:
+  const menus = await window.electronAPI.menusListar();
+
+POR:
+  const menusResult = await window.electronAPI.getMenus();
+  const menus = menusResult.success ? menusResult.data : [];
+
+
+LINHA 556:
+TROCAR:
+  const menusUsuario = await window.electronAPI.usuariosMenus(usuarioId);
+
+POR:
+  const menusResult = await window.electronAPI.getMenusByUsuario(usuarioId);
+  const menusUsuario = menusResult.success ? menusResult.data.map(m => m.id) : [];

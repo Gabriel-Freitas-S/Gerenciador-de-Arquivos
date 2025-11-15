@@ -1,0 +1,36 @@
+ADICIONAR AO ARQUIVO src/main/preload.js
+==========================================
+
+ADICIONAR ANTES DA LINHA FINAL });
+
+Copiar e colar este código ANTES do console.log final:
+
+  // ==========================================
+  // ALERTAS - ATUALIZACAO AUTOMATICA
+  // ==========================================
+  
+  atualizarAlertas: () => {
+    return ipcRenderer.invoke('alertas:atualizar');
+  },
+  
+  // ==========================================
+  // USUARIOS - PERMISSOES
+  // ==========================================
+  
+  usuariosAtualizarMenus: (usuarioId, menuIds) => {
+    return ipcRenderer.invoke('usuarios:atualizar-menus', usuarioId, menuIds);
+  }
+
+FICA ASSIM:
+  },
+  
+  atualizarAlertas: () => {
+    return ipcRenderer.invoke('alertas:atualizar');
+  },
+  
+  usuariosAtualizarMenus: (usuarioId, menuIds) => {
+    return ipcRenderer.invoke('usuarios:atualizar-menus', usuarioId, menuIds);
+  }
+});
+
+console.log('Preload script corrigido carregado: API atualizada para schema_perfis.sql');

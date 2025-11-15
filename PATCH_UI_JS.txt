@@ -1,0 +1,10 @@
+CORRIGIR ARQUIVO src/renderer/js/ui.js
+==========================================
+
+LINHA 633 (aproximadamente, na funcao renderUsuariosAdmin):
+
+TROCAR:
+  <td>${user.perfil}</td>
+
+POR:
+  <td>${user.perfil_nome || 'N/A'}</td>
