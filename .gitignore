@@ -3,3 +3,5 @@ dist/
 *.db
 *.log
 .DS_Store
+.roo/
+backup_pre_limpeza/
