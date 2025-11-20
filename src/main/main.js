@@ -198,8 +198,8 @@ function setupIpcHandlers() {
   ipcMain.handle('db:getFuncionarios', async () => {
     try {
       const result = db.prepare(
-        'SELECT * FROM funcionarios WHERE status = ? ORDER BY nome'
-      ).all('Ativo');
+        'SELECT * FROM funcionarios ORDER BY nome COLLATE NOCASE'
+      ).all();
       return { success: true, data: result };
     } catch (error) {
       console.error('Erro ao buscar funcionários:', error);
@@ -221,11 +221,15 @@ function setupIpcHandlers() {
   });
 
   // Gavetas
-  ipcMain.handle('db:getGavetas', async (event, gaveteiroId) => {
+  ipcMain.handle('db:getGavetas', async (event, gaveteiroId = null) => {
     try {
-      const result = db.prepare(
-        'SELECT * FROM gavetas WHERE gaveteiro_id = ? ORDER BY numero'
-      ).all(gaveteiroId);
+      const hasFilter = typeof gaveteiroId === 'number' && !Number.isNaN(gaveteiroId);
+      const sql = hasFilter
+        ? 'SELECT * FROM gavetas WHERE gaveteiro_id = ? ORDER BY numero COLLATE NOCASE'
+        : 'SELECT * FROM gavetas ORDER BY gaveteiro_id, numero COLLATE NOCASE';
+      const result = hasFilter
+        ? db.prepare(sql).all(gaveteiroId)
+        : db.prepare(sql).all();
       return { success: true, data: result };
     } catch (error) {
       console.error('Erro ao buscar gavetas:', error);

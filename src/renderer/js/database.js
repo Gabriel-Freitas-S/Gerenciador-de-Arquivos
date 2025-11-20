@@ -144,6 +144,8 @@ class DatabaseLayer {
   async demitirFuncionario(id, dataDemissao) {
     const result = await window.electronAPI.demitirFuncionario(id, dataDemissao);
     this.clearSpecificCache('funcionarios');
+    this.clearSpecificCache('pastas');
+    this.clearSpecificCache('gavetas');
     return result;
   }
 

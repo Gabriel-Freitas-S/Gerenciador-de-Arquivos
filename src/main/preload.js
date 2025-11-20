@@ -75,12 +75,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
        funcionario.status, id]);
   },
   
-  demitirFuncionario: (id, dataDemissao) => {
-    return ipcRenderer.invoke('db:execute',
+  demitirFuncionario: async (id, dataDemissao) => {
+    const result = await ipcRenderer.invoke('db:execute',
       `UPDATE funcionarios 
        SET status = 'Demitido', data_demissao = ? 
        WHERE id = ?`,
       [dataDemissao, id]);
+
+    if (result?.success) {
+      try {
+        await ipcRenderer.invoke('db:execute',
+          `UPDATE pastas 
+           SET ativa = 0, arquivo_morto = 1 
+           WHERE funcionario_id = ?`,
+          [id]);
+      } catch (error) {
+        console.error('Erro ao mover pastas para arquivo morto:', error);
+      }
+    }
+
+    return result;
   },
   
   // ============================================
@@ -124,21 +138,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ============================================
   
   getPastas: (gavetaId) => {
-    if (gavetaId) {
-      return ipcRenderer.invoke('db:query',
-        `SELECT p.*, f.nome as funcionario_nome 
+    const baseQuery = `SELECT p.*, f.nome as funcionario_nome 
          FROM pastas p 
          JOIN funcionarios f ON p.funcionario_id = f.id 
-         WHERE p.gaveta_id = ? AND p.ativa = 1
-         ORDER BY p.ordem`,
+         WHERE p.ativa = 1`;
+
+    if (gavetaId) {
+      return ipcRenderer.invoke('db:query',
+        `${baseQuery} AND p.gaveta_id = ?
+         ORDER BY p.nome COLLATE NOCASE`,
         [gavetaId]);
     }
+
     return ipcRenderer.invoke('db:query',
-      `SELECT p.*, f.nome as funcionario_nome 
-       FROM pastas p 
-       JOIN funcionarios f ON p.funcionario_id = f.id 
-       WHERE p.ativa = 1
-       ORDER BY p.ordem`);
+      `${baseQuery}
+       ORDER BY p.nome COLLATE NOCASE`);
   },
   
   getPastaById: (id) => {
@@ -175,11 +189,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   getPastasArquivoMorto: () => {
     return ipcRenderer.invoke('db:query',
-      `SELECT p.*, f.nome as funcionario_nome 
+      `SELECT p.*, 
+              f.nome as funcionario_nome, 
+              f.data_demissao, 
+              f.status as funcionario_status,
+              f.departamento 
        FROM pastas p 
        JOIN funcionarios f ON p.funcionario_id = f.id 
        WHERE p.arquivo_morto = 1
-       ORDER BY p.created_at DESC`);
+       ORDER BY f.data_demissao DESC, f.nome COLLATE NOCASE`);
   },
   
   // CORRIGIDO: tipo ao invés de categoria, removido localizacao_atual

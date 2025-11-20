@@ -580,6 +580,8 @@ class UIManager {
       pastas = pastas.filter(p => p.nome.toLowerCase().includes(filtro.toLowerCase()));
     }
 
+    pastas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+
     if (pastas.length === 0) {
       container.innerHTML = '<div class="empty-state">Nenhuma pasta encontrada</div>';
       return;
@@ -704,39 +706,70 @@ class UIManager {
       return;
     }
 
-    const funcionarios = await this.db.getFuncionarios();
+    const gruposPorAno = pastasArquivoMorto.reduce((acc, pasta) => {
+      const anoDemissao = pasta.data_demissao
+        ? new Date(pasta.data_demissao).getFullYear().toString()
+        : 'Sem registro';
+      acc[anoDemissao] = acc[anoDemissao] || [];
+      acc[anoDemissao].push(pasta);
+      return acc;
+    }, {});
 
-    let html = `
-      <table>
-        <thead>
-          <tr>
-            <th>Nome</th>
-            <th>Funcionário</th>
-            <th>Status Funcionário</th>
-            <th>Data Criação</th>
-            <th>Data Demissão</th>
-            <th>Departamento</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
+    const anosOrdenados = Object.keys(gruposPorAno).sort((a, b) => {
+      if (a === 'Sem registro') return 1;
+      if (b === 'Sem registro') return -1;
+      return parseInt(b, 10) - parseInt(a, 10);
+    });
 
-    for (const pasta of pastasArquivoMorto) {
-      const funcionario = funcionarios.find(f => f.id === pasta.funcionario_id);
-      
+    let html = '';
+
+    for (const ano of anosOrdenados) {
+      const registros = gruposPorAno[ano]
+        .slice()
+        .sort((a, b) => (a.funcionario_nome || a.nome)
+          .localeCompare(b.funcionario_nome || b.nome, 'pt-BR', { sensitivity: 'base' }));
+
+      const titulo = ano === 'Sem registro' ? 'Sem data de demissão' : `Ano ${ano}`;
+
       html += `
-        <tr>
-          <td><strong>${pasta.nome}</strong> <span class="arquivo-morto-badge">ARQUIVO MORTO</span></td>
-          <td>${funcionario?.nome || 'N/A'}</td>
-          <td><span class="status status--error">${funcionario?.status || 'N/A'}</span></td>
-          <td>${this.formatarData(pasta.data_criacao)}</td>
-          <td>${funcionario?.data_demissao ? this.formatarData(funcionario.data_demissao) : 'N/A'}</td>
-          <td>${funcionario?.departamento || 'N/A'}</td>
-        </tr>
+        <div class="arquivo-morto-group">
+          <div class="section-header" style="margin-top: 0;">
+            <h3>${titulo}</h3>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Funcionário</th>
+                <th>Status Funcionário</th>
+                <th>Data Criação</th>
+                <th>Data Demissão</th>
+                <th>Departamento</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+
+      for (const pasta of registros) {
+        html += `
+          <tr>
+            <td><strong>${pasta.nome}</strong> <span class="arquivo-morto-badge">ARQUIVO MORTO</span></td>
+            <td>${pasta.funcionario_nome || 'N/A'}</td>
+            <td><span class="status status--error">${pasta.funcionario_status || 'N/A'}</span></td>
+            <td>${this.formatarData(pasta.data_criacao)}</td>
+            <td>${pasta.data_demissao ? this.formatarData(pasta.data_demissao) : 'N/A'}</td>
+            <td>${pasta.departamento || 'N/A'}</td>
+          </tr>
+        `;
+      }
+
+      html += `
+            </tbody>
+          </table>
+        </div>
       `;
     }
 
-    html += '</tbody></table>';
     container.innerHTML = html;
   }
 

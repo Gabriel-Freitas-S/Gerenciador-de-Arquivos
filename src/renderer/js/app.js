@@ -444,6 +444,7 @@ class HospitalFileManagementApp {
   async abrirModalNovaPasta() {
     const gaveteiros = await this.db.getGaveteiros();
     const gavetas = await this.db.getGavetas();
+    const funcionarios = (await this.db.getFuncionarios()).filter(f => f.status === 'Ativo');
     
     let options = '';
     gaveteiros.forEach(gaveteiro => {
@@ -456,8 +457,24 @@ class HospitalFileManagementApp {
       });
     });
 
+    if (!options) {
+      options = '<option value="">Nenhuma gaveta com espaço disponível</option>';
+    }
+
+    const funcionarioOptions = funcionarios
+      .map(func => `<option value="${func.id}">${func.nome} - ${func.departamento}</option>`)
+      .join('');
+
     this.ui.openModal('Nova Pasta', `
       <form id="formNovaPasta">
+        <div class="form-group">
+          <label>Funcionário</label>
+          <select class="form-control" id="funcionarioSelect" required>
+            <option value="">Selecione...</option>
+            ${funcionarioOptions}
+          </select>
+          ${funcionarios.length === 0 ? '<small style="color: var(--color-danger);">Cadastre funcionários ativos antes de criar pastas.</small>' : ''}
+        </div>
         <div class="form-group">
           <label>Gaveta</label>
           <select class="form-control" id="gavetaSelect" required>
@@ -485,15 +502,24 @@ class HospitalFileManagementApp {
   async salvarPasta() {
     const gaveta_id = parseInt(document.getElementById('gavetaSelect').value);
     const nome = document.getElementById('nomePasta').value;
+    const funcionario_id = parseInt(document.getElementById('funcionarioSelect').value);
 
-    if (!gaveta_id || !nome) {
+    if (!gaveta_id || !nome || !funcionario_id) {
       this.ui.showToast('Preencha todos os campos', 'error');
       return;
     }
 
     try {
+      const pastasExistentes = await this.db.getPastas();
+      const pastaDoFuncionario = pastasExistentes.find(p => p.funcionario_id === funcionario_id);
+      if (pastaDoFuncionario) {
+        this.ui.showToast('Este funcionário já possui uma pasta ativa.', 'warning');
+        return;
+      }
+
       const result = await this.db.addPasta({
         gaveta_id,
+        funcionario_id,
         nome,
         data_criacao: this.ui.getCurrentDate()
       });
