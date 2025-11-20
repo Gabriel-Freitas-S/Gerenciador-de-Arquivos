@@ -461,9 +461,13 @@ class HospitalFileManagementApp {
       options = '<option value="">Nenhuma gaveta com espaço disponível</option>';
     }
 
-    const funcionarioOptions = funcionarios
+    let funcionarioOptions = funcionarios
       .map(func => `<option value="${func.id}">${func.nome} - ${func.departamento}</option>`)
       .join('');
+
+    if (!funcionarioOptions) {
+      funcionarioOptions = '<option value="">Nenhum funcionário ativo disponível</option>';
+    }
 
     this.ui.openModal('Nova Pasta', `
       <form id="formNovaPasta">
@@ -487,7 +491,7 @@ class HospitalFileManagementApp {
           <input type="text" class="form-control" id="nomePasta" required>
         </div>
         <div class="alert alert-info" style="margin-top: 16px;">
-          <strong>Info:</strong> Serão criados automaticamente 4 envelopes: Segurança, Medicina, Pessoal e Treinamento.
+          <strong>Info:</strong> Serão criados automaticamente 4 envelopes: Segurança, Medicina do Trabalho, Pessoal e Treinamento.
         </div>
       </form>
     `, `
@@ -530,7 +534,7 @@ class HospitalFileManagementApp {
         await this.ui.renderPastas();
         this.ui.showToast('Pasta criada com sucesso!', 'success');
       } else {
-        this.ui.showToast('Erro ao criar pasta', 'error');
+        this.ui.showToast(result.message || 'Erro ao criar pasta', 'error');
       }
     } catch (error) {
       console.error('Erro ao salvar pasta:', error);
@@ -563,10 +567,11 @@ class HospitalFileManagementApp {
       const statusTexto = env.status === 'presente' ? 'Presente' : 'Retirado';
       const btnTexto = env.status === 'presente' ? 'Registrar Saída' : 'Registrar Entrada';
       const btnAction = env.status === 'presente' ? 'saida' : 'entrada';
+      const envelopeLabel = this.ui.formatEnvelopeTipo(env.tipo);
 
       html += `
         <div class="envelope-item">
-          <div class="envelope-tipo">${env.tipo}</div>
+          <div class="envelope-tipo">${envelopeLabel}</div>
           <span class="status ${statusClass}">${statusTexto}</span>
           <div class="envelope-actions">
             <button class="btn btn--primary" onclick="app.registrarMovimentacao(${env.id}, '${btnAction}')">

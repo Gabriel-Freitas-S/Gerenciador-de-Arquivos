@@ -176,7 +176,7 @@ class UIManager {
       document.getElementById('totalGavetas').textContent = stats.totalGavetas || 0;
       document.getElementById('totalPastas').textContent = stats.totalPastas || 0;
       document.getElementById('itensRetirados').textContent = stats.itensRetirados || 0;
-      document.getElementById('gavetasCheias').textContent = stats.alertasCriticos || 0;
+      document.getElementById('gavetasCheias').textContent = stats.gavetasCheias || 0;
 
       // Atualizar alertas
       try {
@@ -519,7 +519,16 @@ class UIManager {
     const gaveteiros = await this.db.getGaveteiros();
     const gavetas = await this.db.getGavetas();
 
-    let html = '';
+    const resumo = this.calcularResumoGavetas(gavetas);
+
+    let html = `
+      <div class="gaveta-summary">
+        <span class="status status--error">Cheias: ${resumo.cheias}</span>
+        <span class="status status--warning">Atenção: ${resumo.atencao}</span>
+        <span class="status status--success">Disponíveis: ${resumo.disponiveis}</span>
+        <span class="status status--pending">Vazias: ${resumo.vazias}</span>
+      </div>
+    `;
 
     for (const gaveteiro of gaveteiros) {
       const gavetasDoGaveteiro = gavetas.filter(g => g.gaveteiro_id === gaveteiro.id);
@@ -539,10 +548,13 @@ class UIManager {
       `;
 
       for (const gaveta of gavetasDoGaveteiro) {
-        const percentual = Math.round((gaveta.ocupacao_atual / gaveta.capacidade) * 100);
+        const percentual = gaveta.capacidade > 0
+          ? Math.round((gaveta.ocupacao_atual / gaveta.capacidade) * 100)
+          : 0;
         let progressClass = '';
         if (percentual > 90) progressClass = 'danger';
         else if (percentual > 70) progressClass = 'warning';
+        const statusInfo = this.getGavetaStatusInfo(gaveta);
 
         html += `
           <div class="gaveta-item" onclick="app.verDetalhesGaveta(${gaveta.id})">
@@ -552,6 +564,9 @@ class UIManager {
               <div class="progress-fill ${progressClass}" style="width: ${percentual}%"></div>
             </div>
             <div style="font-size: 12px; margin-top: 4px; text-align: center;">${percentual}%</div>
+            <div class="gaveta-status-line">
+              <span class="status ${statusInfo.className}">${statusInfo.label}</span>
+            </div>
           </div>
         `;
       }
@@ -996,5 +1011,47 @@ class UIManager {
   getCurrentTimestamp() {
     const now = new Date();
     return now.toLocaleString('pt-BR');
+  }
+
+  calcularResumoGavetas(gavetas) {
+    return gavetas.reduce((acc, gaveta) => {
+      if (!gaveta) return acc;
+      const capacidade = gaveta.capacidade || 1;
+      const percentual = gaveta.ocupacao_atual / capacidade;
+      if (gaveta.ocupacao_atual >= gaveta.capacidade) {
+        acc.cheias += 1;
+      } else if (gaveta.ocupacao_atual === 0) {
+        acc.vazias += 1;
+      } else if (percentual >= 0.8) {
+        acc.atencao += 1;
+      } else {
+        acc.disponiveis += 1;
+      }
+      return acc;
+    }, { cheias: 0, atencao: 0, disponiveis: 0, vazias: 0 });
+  }
+
+  getGavetaStatusInfo(gaveta) {
+    if (!gaveta) {
+      return { label: 'Desconhecido', className: 'status--pending' };
+    }
+    if (gaveta.ocupacao_atual >= gaveta.capacidade) {
+      return { label: 'Cheia', className: 'status--error' };
+    }
+    if (gaveta.ocupacao_atual === 0) {
+      return { label: 'Vazia', className: 'status--pending' };
+    }
+    const percentual = gaveta.capacidade > 0 ? (gaveta.ocupacao_atual / gaveta.capacidade) : 0;
+    if (percentual >= 0.8) {
+      return { label: 'Reorganizar', className: 'status--warning' };
+    }
+    return { label: 'Disponível', className: 'status--success' };
+  }
+
+  formatEnvelopeTipo(tipo) {
+    const map = {
+      Medicina: 'Medicina do Trabalho'
+    };
+    return map[tipo] || tipo;
   }
 }

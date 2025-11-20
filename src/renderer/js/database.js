@@ -274,7 +274,11 @@ class DatabaseLayer {
    * @returns {Promise<Object>}
    */
   async addPasta(data) {
-    const result = await window.electronAPI.addPasta(data);
+    const payload = { ...data };
+    if (!payload.data_criacao) {
+      payload.data_criacao = new Date().toISOString().split('T')[0];
+    }
+    const result = await window.electronAPI.addPasta(payload);
     this.clearSpecificCache('pastas');
     this.clearSpecificCache('gavetas'); // Atualiza ocupação
     return result;
@@ -609,7 +613,10 @@ class DatabaseLayer {
       totalPastas: 0,
       itensRetirados: 0,
       alertasCriticos: 0,
-      gavetasCheias: 0
+      gavetasCheias: 0,
+      gavetasAtencao: 0,
+      gavetasVazias: 0,
+      gavetasDisponiveis: 0
     };
   }
 

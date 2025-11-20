@@ -207,6 +207,47 @@ function setupIpcHandlers() {
     }
   });
 
+  ipcMain.handle('funcionarios:demitir', async (event, { id, dataDemissao }) => {
+    try {
+      const updateFuncionario = db.prepare(`
+        UPDATE funcionarios
+        SET status = 'Demitido', data_demissao = ?
+        WHERE id = ?
+      `);
+      const selectPastasAtivas = db.prepare(`
+        SELECT id, gaveta_id
+        FROM pastas
+        WHERE funcionario_id = ? AND ativa = 1
+      `);
+      const arquivarPasta = db.prepare(`
+        UPDATE pastas
+        SET ativa = 0, arquivo_morto = 1
+        WHERE id = ?
+      `);
+      const liberarEspacoGaveta = db.prepare(`
+        UPDATE gavetas
+        SET ocupacao_atual = CASE WHEN ocupacao_atual > 0 THEN ocupacao_atual - 1 ELSE 0 END
+        WHERE id = ?
+      `);
+
+      const transaction = db.transaction((payload) => {
+        updateFuncionario.run(payload.dataDemissao, payload.id);
+        const pastasAtivas = selectPastasAtivas.all(payload.id);
+        pastasAtivas.forEach(pasta => {
+          arquivarPasta.run(pasta.id);
+          liberarEspacoGaveta.run(pasta.gaveta_id);
+        });
+        return pastasAtivas.length;
+      });
+
+      const pastasArquivadas = transaction({ id, dataDemissao });
+      return { success: true, pastasArquivadas };
+    } catch (error) {
+      console.error('Erro ao demitir funcionário:', error);
+      return { success: false, message: error.message };
+    }
+  });
+
   // Gaveteiros
   ipcMain.handle('db:getGaveteiros', async () => {
     try {
@@ -250,6 +291,89 @@ function setupIpcHandlers() {
       return { success: true, data: result };
     } catch (error) {
       console.error('Erro ao buscar pastas:', error);
+      return { success: false, message: error.message };
+    }
+  });
+
+  ipcMain.handle('pastas:criar', async (event, pastaData) => {
+    try {
+      const insertPasta = db.prepare(`
+        INSERT INTO pastas (gaveta_id, funcionario_id, nome, data_criacao, ordem, ativa, arquivo_morto)
+        VALUES (?, ?, ?, ?, ?, 1, 0)
+      `);
+      const insertEnvelope = db.prepare(`
+        INSERT INTO envelopes (pasta_id, tipo, status)
+        VALUES (?, ?, 'presente')
+      `);
+      const atualizarOcupacao = db.prepare(`
+        UPDATE gavetas
+        SET ocupacao_atual = ocupacao_atual + 1
+        WHERE id = ?
+      `);
+      const buscarGaveta = db.prepare(`
+        SELECT capacidade, ocupacao_atual
+        FROM gavetas
+        WHERE id = ?
+      `);
+
+      const transaction = db.transaction((payload) => {
+        const gaveta = buscarGaveta.get(payload.gaveta_id);
+        if (!gaveta) {
+          throw new Error('Gaveta não encontrada.');
+        }
+        if (gaveta.ocupacao_atual >= gaveta.capacidade) {
+          throw new Error('Gaveta selecionada está cheia.');
+        }
+
+        const dataCriacao = payload.data_criacao || new Date().toISOString().split('T')[0];
+
+        const result = insertPasta.run(
+          payload.gaveta_id,
+          payload.funcionario_id,
+          payload.nome,
+          dataCriacao,
+          payload.ordem || 0
+        );
+        const pastaId = result.lastInsertRowid;
+
+        const envelopeTipos = ['Pessoal', 'Segurança', 'Medicina', 'Treinamento'];
+        envelopeTipos.forEach(tipo => insertEnvelope.run(pastaId, tipo));
+
+        atualizarOcupacao.run(payload.gaveta_id);
+        return pastaId;
+      });
+
+      const pastaId = transaction(pastaData);
+      return { success: true, lastInsertRowid: pastaId };
+    } catch (error) {
+      console.error('Erro ao criar pasta:', error);
+      return { success: false, message: error.message };
+    }
+  });
+
+  ipcMain.handle('pastas:arquivar', async (event, pastaId) => {
+    try {
+      const selecionarPasta = db.prepare('SELECT gaveta_id FROM pastas WHERE id = ?');
+      const arquivar = db.prepare('UPDATE pastas SET arquivo_morto = 1, ativa = 0 WHERE id = ?');
+      const liberarEspaco = db.prepare(`
+        UPDATE gavetas
+        SET ocupacao_atual = CASE WHEN ocupacao_atual > 0 THEN ocupacao_atual - 1 ELSE 0 END
+        WHERE id = ?
+      `);
+
+      const transaction = db.transaction((id) => {
+        const pasta = selecionarPasta.get(id);
+        if (!pasta) {
+          throw new Error('Pasta não encontrada.');
+        }
+        arquivar.run(id);
+        liberarEspaco.run(pasta.gaveta_id);
+      });
+
+      transaction(pastaId);
+      return { success: true };
+    } catch (error) {
+      console.error('Erro ao arquivar pasta:', error);
       return { success: false, message: error.message };
     }
   });
@@ -311,34 +435,38 @@ function setupIpcHandlers() {
   // Estatísticas do dashboard
   ipcMain.handle('db:getEstatisticas', async () => {
     try {
-      const totalFuncionarios = db.prepare(
-        'SELECT COUNT(*) as total FROM funcionarios WHERE status = ?'
-      ).get('Ativo');
-      
-      const totalGaveteiros = db.prepare(
-        'SELECT COUNT(*) as total FROM gaveteiros'
-      ).get();
-      
+      const totalGavetas = db.prepare(`
+        SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN ocupacao_atual >= capacidade THEN 1 ELSE 0 END) as cheias,
+          SUM(CASE WHEN capacidade > 0 AND ocupacao_atual < capacidade AND (CAST(ocupacao_atual AS REAL) / capacidade) >= 0.8 THEN 1 ELSE 0 END) as atencao,
+          SUM(CASE WHEN ocupacao_atual = 0 THEN 1 ELSE 0 END) as vazias
+        FROM gavetas
+      `).get();
+
       const totalPastas = db.prepare(
         'SELECT COUNT(*) as total FROM pastas WHERE ativa = 1'
       ).get();
-      
+
       const totalRetiradas = db.prepare(
         'SELECT COUNT(*) as total FROM retiradas_com_pessoas WHERE status = ?'
       ).get('ativo');
-      
-      const totalAlertas = db.prepare(
-        'SELECT COUNT(*) as total FROM alertas WHERE resolvido = 0'
+
+      const alertasCriticos = db.prepare(
+        "SELECT COUNT(*) as total FROM alertas WHERE resolvido = 0 AND lower(severidade) = 'crítico'"
       ).get();
-      
+
       return {
         success: true,
         data: {
-          funcionarios: totalFuncionarios.total,
-          gaveteiros: totalGaveteiros.total,
-          pastas: totalPastas.total,
-          retiradas: totalRetiradas.total,
-          alertas: totalAlertas.total
+          totalGavetas: totalGavetas.total || 0,
+          totalPastas: totalPastas.total || 0,
+          itensRetirados: totalRetiradas.total || 0,
+          alertasCriticos: alertasCriticos.total || 0,
+          gavetasCheias: totalGavetas.cheias || 0,
+          gavetasAtencao: totalGavetas.atencao || 0,
+          gavetasVazias: totalGavetas.vazias || 0,
+          gavetasDisponiveis: Math.max(0, (totalGavetas.total || 0) - (totalGavetas.cheias || 0))
         }
       };
     } catch (error) {

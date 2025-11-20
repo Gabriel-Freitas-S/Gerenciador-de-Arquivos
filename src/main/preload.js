@@ -75,26 +75,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
        funcionario.status, id]);
   },
   
-  demitirFuncionario: async (id, dataDemissao) => {
-    const result = await ipcRenderer.invoke('db:execute',
-      `UPDATE funcionarios 
-       SET status = 'Demitido', data_demissao = ? 
-       WHERE id = ?`,
-      [dataDemissao, id]);
-
-    if (result?.success) {
-      try {
-        await ipcRenderer.invoke('db:execute',
-          `UPDATE pastas 
-           SET ativa = 0, arquivo_morto = 1 
-           WHERE funcionario_id = ?`,
-          [id]);
-      } catch (error) {
-        console.error('Erro ao mover pastas para arquivo morto:', error);
-      }
-    }
-
-    return result;
+  demitirFuncionario: (id, dataDemissao) => {
+    return ipcRenderer.invoke('funcionarios:demitir', { id, dataDemissao });
   },
   
   // ============================================
@@ -165,14 +147,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   
   addPasta: (pasta) => {
-    return ipcRenderer.invoke('db:execute',
-      `INSERT INTO pastas (gaveta_id, funcionario_id, nome, data_criacao, ordem, ativa, arquivo_morto) 
-       VALUES (?, ?, ?, ?, ?, 1, 0)`,
-      [pasta.gaveta_id, 
-       pasta.funcionario_id, 
-       pasta.nome, 
-       pasta.data_criacao || new Date().toISOString().split('T')[0],
-       pasta.ordem || 0]);
+    return ipcRenderer.invoke('pastas:criar', pasta);
   },
   
   updatePasta: (id, pasta) => {
@@ -182,9 +157,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   
   arquivarPasta: (id) => {
-    return ipcRenderer.invoke('db:execute',
-      'UPDATE pastas SET arquivo_morto = 1, ativa = 0 WHERE id = ?',
-      [id]);
+    return ipcRenderer.invoke('pastas:arquivar', id);
   },
   
   getPastasArquivoMorto: () => {
