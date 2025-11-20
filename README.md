@@ -93,32 +93,63 @@ dist/Sistema de Arquivos Hospital-Setup-1.0.0.exe
 ## 📂 Estrutura do Projeto
 
 ```
-arquivo-hospital/
-├── src/
-│   ├── main/              # Backend Electron
-│   │   ├── main.js        # Processo principal
-│   │   ├── preload.js     # IPC bridge (segurança)
-│   │   └── menu.js        # Menu nativo
-│   ├── renderer/          # Frontend
-│   │   ├── index.html     # Interface HTML
-│   │   ├── css/
-│   │   │   └── style.css  # Estilos
-│   │   └── js/
-│   │       ├── auth.js    # Autenticação
-│   │       ├── database.js # Acesso a dados
-│   │       ├── ui.js      # Gerenciamento de interface
-│   │       └── app.js     # Coordenação geral
-│   └── db/                # Banco de dados
-│       ├── schema.sql     # Estrutura das tabelas
-│       └── seeds.sql      # Dados iniciais
+Gerenciador-de-Arquivos/
 ├── build/
-│   └── icon.png           # Ícone da aplicação
-├── dist/                  # Executáveis gerados
-├── package.json           # Dependências e scripts
-├── electron-builder.json  # Configuração de build
-├── README.md              # Este arquivo
-└── TESTE.md               # Guia completo de testes
+│   └── icon.png
+├── src/
+│   ├── db/
+│   │   ├── schema_perfis.sql
+│   │   ├── seeds_perfis.sql
+│   │   └── seed_admin.sql
+│   ├── main/                         # Processo principal do Electron
+│   │   ├── database/                 # Inicialização e migrações do SQLite
+│   │   │   └── index.js
+│   │   ├── ipc/
+│   │   │   ├── helpers/
+│   │   │   │   └── menu-helper.js
+│   │   │   ├── modules/              # Handlers separados por domínio
+│   │   │   │   ├── alerta-handlers.js
+│   │   │   │   ├── auth-handlers.js
+│   │   │   │   ├── database-handlers.js
+│   │   │   │   ├── estatistica-handlers.js
+│   │   │   │   ├── funcionarios-handlers.js
+│   │   │   │   ├── gaveta-handlers.js
+│   │   │   │   ├── menu-handlers.js
+│   │   │   │   ├── pasta-handlers.js
+│   │   │   │   ├── perfil-handlers.js
+│   │   │   │   ├── retirada-handlers.js
+│   │   │   │   ├── solicitacao-handlers.js
+│   │   │   │   └── usuario-permissao-handlers.js
+│   │   │   └── index.js              # Registro central dos handlers
+│   │   ├── windows/
+│   │   │   └── mainWindow.js         # Criação da BrowserWindow
+│   │   ├── main.js                   # Bootstrap contendo apenas orquestração
+│   │   ├── preload.js                # Ponte segura renderer/main
+│   │   └── menu.js                   # Menu nativo
+│   └── renderer/
+│       ├── index.html
+│       ├── css/style.css
+│       └── js/
+│           ├── utils/date-utils.js
+│           ├── utils/dom-utils.js
+│           ├── controllers/modal-controller.js
+│           ├── auth.js
+│           ├── database.js
+│           ├── ui.js
+│           └── app.js
+├── electron-builder.json
+├── package.json
+└── README.md
 ```
+
+### Organização em camadas
+
+- **Processo principal**: `src/main/main.js` apenas coordena inicialização delegando responsabilidades para `database/`, `ipc/` e `windows/`.
+- **Camada de dados**: `src/main/database/index.js` cuida do ciclo de vida do SQLite (criação, migração e seeds).
+- **IPC modular**: cada domínio de negócio possui um arquivo dedicado em `src/main/ipc/modules`, facilitando manutenção e futuras adições sem arquivos monolíticos.
+- **Renderer**: utilitários globais (`DateUtils`, `DomUtils`) e `ModalController` compartilham lógica entre `app.js`, `ui.js` e demais módulos.
+
+Essa divisão mantém responsabilidades pequenas, melhora testabilidade e reduz impacto de mudanças futuras.
 
 ## 🧪 Testes
 

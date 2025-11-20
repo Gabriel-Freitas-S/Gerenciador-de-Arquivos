@@ -36,8 +36,10 @@ class UIManager {
     
     // Atualizar info do usuário
     const user = this.auth.getCurrentUser();
-    document.getElementById('currentUserName').textContent = user.username;
-    document.getElementById('currentUserRole').textContent = user.perfil;
+    if (window.DomUtils) {
+      window.DomUtils.setText('currentUserName', user.username);
+      window.DomUtils.setText('currentUserRole', user.perfil);
+    }
     this.applyNavigationPermissions();
     this.navigateToView(this.auth.getDefaultView());
   }
@@ -954,11 +956,7 @@ class UIManager {
    * @returns {number}
    */
   calcularDiasDecorridos(dataInicio) {
-    const inicio = new Date(dataInicio);
-    const agora = new Date();
-    const diffTime = Math.abs(agora - inicio);
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
+    return window.DateUtils?.daysSince(dataInicio) || 0;
   }
 
   /**
@@ -967,13 +965,7 @@ class UIManager {
    * @returns {string}
    */
   formatarData(data) {
-    if (!data) return 'N/A';
-    try {
-      const d = new Date(data);
-      return d.toLocaleDateString('pt-BR');
-    } catch {
-      return data;
-    }
+    return window.DateUtils?.formatDate(data) || 'N/A';
   }
 
   /**
@@ -982,13 +974,7 @@ class UIManager {
    * @returns {string}
    */
   formatarDataHora(dataStr) {
-    if (!dataStr) return 'N/A';
-    try {
-      const d = new Date(dataStr);
-      return d.toLocaleString('pt-BR');
-    } catch {
-      return dataStr;
-    }
+    return window.DateUtils?.formatDateTime(dataStr) || 'N/A';
   }
 
   /**
@@ -996,8 +982,7 @@ class UIManager {
    * @returns {string}
    */
   getCurrentDate() {
-    const now = new Date();
-    return now.toISOString().split('T')[0];
+    return window.DateUtils?.getCurrentDateIso() || '';
   }
 
   /**

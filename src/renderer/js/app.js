@@ -9,38 +9,25 @@
  */
 class HospitalFileManagementApp {
   constructor() {
-    // Inicializar módulos
     this.auth = new AuthManager();
     this.db = new DatabaseLayer();
     this.ui = new UIManager(this.auth, this.db);
     this.currentSolicitacaoContext = null;
-    
-    console.log('🏭 Sistema de Gerenciamento de Arquivos Hospital - Inicializando...');
   }
 
   /**
    * Inicializa a aplicação
    */
   async init() {
-    console.log('🚀 Configurando sistema...');
-    
-    // Setup de event listeners globais
     this.setupEventListeners();
     
-    // Mostrar tela de login
     this.ui.showLoginScreen();
-    
-    console.log('✅ Sistema pronto!');
   }
 
   /**
    * Configura todos os event listeners da aplicação
    */
   setupEventListeners() {
-    // ==========================================
-    // LOGIN / LOGOUT
-    // ==========================================
-    
     document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       await this.handleLogin();
@@ -50,10 +37,6 @@ class HospitalFileManagementApp {
       this.handleLogout();
     });
 
-    // ==========================================
-    // NAVEGAÇÃO
-    // ==========================================
-    
     document.querySelectorAll('.nav-item').forEach(item => {
       item.addEventListener('click', async (e) => {
         e.preventDefault();
@@ -62,30 +45,14 @@ class HospitalFileManagementApp {
       });
     });
 
-    // ==========================================
-    // BOTÕES DE AÇÃO PRINCIPAIS
-    // ==========================================
-    
-    document.getElementById('btnNovoGaveteiro')?.addEventListener('click', () => {
-      this.abrirModalNovoGaveteiro();
-    });
+    document.getElementById('btnNovoGaveteiro')?.addEventListener('click', () => this.abrirModalNovoGaveteiro());
 
-    document.getElementById('btnNovaGaveta')?.addEventListener('click', () => {
-      this.abrirModalNovaGaveta();
-    });
+    document.getElementById('btnNovaGaveta')?.addEventListener('click', () => this.abrirModalNovaGaveta());
 
-    document.getElementById('btnNovaPasta')?.addEventListener('click', () => {
-      this.abrirModalNovaPasta();
-    });
+    document.getElementById('btnNovaPasta')?.addEventListener('click', () => this.abrirModalNovaPasta());
 
-    document.getElementById('btnNovoUsuario')?.addEventListener('click', () => {
-      this.abrirModalNovoUsuario();
-    });
+    document.getElementById('btnNovoUsuario')?.addEventListener('click', () => this.abrirModalNovoUsuario());
 
-    // ==========================================
-    // BUSCA
-    // ==========================================
-    
     document.getElementById('searchPastas')?.addEventListener('input', (e) => {
       this.ui.renderPastas(e.target.value);
     });
@@ -100,10 +67,6 @@ class HospitalFileManagementApp {
       });
     });
 
-    // ==========================================
-    // ATUALIZAÇÃO PERIÓDICA DE ALERTAS
-    // ==========================================
-    
     setInterval(async () => {
       try {
         await this.db.atualizarAlertas();
@@ -119,10 +82,6 @@ class HospitalFileManagementApp {
   closeModal() {
     this.ui.closeModal();
   }
-
-  // ==========================================
-  // AUTENTICAÇÃO
-  // ==========================================
 
   /**
    * Processa login do usuário

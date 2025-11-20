@@ -213,15 +213,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('db:getSolicitacoes');
   },
   
-  getSolicitacoesPendentes: () => {
-    return ipcRenderer.invoke('db:query',
-      `SELECT s.*, f.nome as funcionario_nome, u.username 
-       FROM solicitacoes s 
-       JOIN funcionarios f ON s.funcionario_id = f.id 
-       JOIN usuarios u ON s.usuario_id = u.id 
-       WHERE s.status = 'pendente' 
-       ORDER BY s.data_solicitacao DESC`);
-  },
+  getSolicitacoesPendentes: () => ipcRenderer.invoke('db:getSolicitacoesPendentes'),
   
   createSolicitacao: (solicitacao) => {
     return ipcRenderer.invoke('solicitacoes:criar', solicitacao);
@@ -248,28 +240,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('db:getRetiradas');
   },
   
-  getRetiradasAtivas: () => {
-    return ipcRenderer.invoke('db:query',
-      `SELECT r.*, f.nome as funcionario_nome, u.username,
-        p.nome as pasta_nome
-       FROM retiradas_com_pessoas r 
-       JOIN funcionarios f ON r.funcionario_id = f.id 
-       JOIN usuarios u ON r.usuario_id = u.id 
-       JOIN pastas p ON r.pasta_id = p.id
-       WHERE r.status = 'ativo' 
-       ORDER BY r.data_retirada DESC`);
-  },
+  getRetiradasAtivas: () => ipcRenderer.invoke('db:getRetiradasAtivas'),
   
-  getRetiradasByUsuario: (usuarioId) => {
-    return ipcRenderer.invoke('db:query',
-      `SELECT r.*, f.nome as funcionario_nome, p.nome as pasta_nome
-       FROM retiradas_com_pessoas r 
-       JOIN funcionarios f ON r.funcionario_id = f.id 
-       JOIN pastas p ON r.pasta_id = p.id
-       WHERE r.usuario_id = ? AND r.status = 'ativo' 
-       ORDER BY r.data_retirada DESC`,
-      [usuarioId]);
-  },
+  getRetiradasByUsuario: (usuarioId) => ipcRenderer.invoke('db:getRetiradasByUsuario', usuarioId),
   
   // CORRIGIDO: data_prevista_retorno ao invés de prazo_devolucao
   createRetirada: (retirada) => {
@@ -458,22 +431,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // LOGS
   // ============================================
   
-  addLog: (log) => {
-    return ipcRenderer.invoke('db:execute',
-      `INSERT INTO logs (usuario_id, acao, tabela_afetada, registro_id, detalhes)
-       VALUES (?, ?, ?, ?, ?)`,
-      [log.usuario_id, log.acao, log.tabela_afetada || null, log.registro_id || null, log.detalhes || null]);
-  },
+  addLog: (log) => ipcRenderer.invoke('db:addLog', log),
   
-  getLogs: (limit = 100) => {
-    return ipcRenderer.invoke('db:query',
-      `SELECT l.*, u.username 
-       FROM logs l 
-       LEFT JOIN usuarios u ON l.usuario_id = u.id 
-       ORDER BY l.timestamp DESC 
-       LIMIT ?`,
-      [limit]);
-  }
+  getLogs: (limit = 100) => ipcRenderer.invoke('db:getLogs', limit)
 });
 
 console.log('Preload script corrigido carregado: API atualizada para schema_perfis.sql');
