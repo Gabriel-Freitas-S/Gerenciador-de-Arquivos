@@ -17,6 +17,8 @@ class DatabaseLayer {
       pastas: null,
       envelopes: null,
       usuarios: null,
+      perfis: null,
+      menus: null,
       solicitacoes: null,
       retiradas: null,
       alertas: null,
@@ -547,6 +549,46 @@ class DatabaseLayer {
   async toggleUsuarioStatus(id, ativo) {
     const result = await window.electronAPI.toggleUsuarioStatus(id, ativo);
     this.clearSpecificCache('usuarios');
+    return result;
+  }
+
+  // ==========================================
+  // PERFIS E MENUS - Gerenciamento
+  // ==========================================
+
+  async getPerfis(forceRefresh = false) {
+    if (!forceRefresh && this.cache.perfis) {
+      return this.cache.perfis;
+    }
+
+    const result = await window.electronAPI.getPerfis();
+    if (result.success) {
+      this.cache.perfis = result.data;
+      return result.data;
+    }
+    return [];
+  }
+
+  async getMenus(forceRefresh = false) {
+    if (!forceRefresh && this.cache.menus) {
+      return this.cache.menus;
+    }
+
+    const result = await window.electronAPI.getMenus();
+    if (result.success) {
+      this.cache.menus = result.data;
+      return result.data;
+    }
+    return [];
+  }
+
+  async getMenusByUsuario(usuarioId) {
+    const result = await window.electronAPI.getMenusByUsuario(usuarioId);
+    return result.success ? result.data : [];
+  }
+
+  async atualizarMenusUsuario(usuarioId, menuIds) {
+    const result = await window.electronAPI.usuariosAtualizarMenus(usuarioId, menuIds);
     return result;
   }
 

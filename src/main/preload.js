@@ -321,6 +321,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
        WHERE a.resolvido = 0 
        ORDER BY a.severidade DESC, a.data_criacao DESC`);
   },
+
+  atualizarAlertas: () => {
+    return ipcRenderer.invoke('alertas:atualizar');
+  },
   
   // CORRIGIDO: Removido data_resolucao que não existe
   resolverAlerta: (alertaId) => {
@@ -402,6 +406,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('db:execute',
       'UPDATE usuarios SET ativo = ? WHERE id = ?',
       [ativo ? 1 : 0, id]);
+  },
+  
+  usuariosAtualizarMenus: (usuarioId, menuIds) => {
+    return ipcRenderer.invoke('usuarios:atualizar-menus', usuarioId, menuIds);
   },
   
   // ============================================

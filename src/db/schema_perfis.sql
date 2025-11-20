@@ -58,6 +58,21 @@ CREATE TABLE perfis_menus (
 );
 
 -- ============================================
+-- TABELA: usuarios_menus (NOVA)
+-- ============================================
+-- Permissões individuais por usuário (override de perfis)
+-- ============================================
+CREATE TABLE usuarios_menus (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL,
+    menu_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    FOREIGN KEY (menu_id) REFERENCES menus(id) ON DELETE CASCADE,
+    UNIQUE(usuario_id, menu_id)
+);
+
+-- ============================================
 -- TABELA: usuarios (ATUALIZADA)
 -- ============================================
 -- Usuários agora vinculados a perfis
@@ -233,6 +248,10 @@ CREATE INDEX idx_menus_ativo ON menus(ativo);
 CREATE INDEX idx_menus_ordem ON menus(ordem);
 CREATE INDEX idx_perfis_menus_perfil ON perfis_menus(perfil_id);
 CREATE INDEX idx_perfis_menus_menu ON perfis_menus(menu_id);
+
+-- Usuarios menus
+CREATE INDEX idx_usuarios_menus_usuario ON usuarios_menus(usuario_id);
+CREATE INDEX idx_usuarios_menus_menu ON usuarios_menus(menu_id);
 
 -- Índices para usuários
 CREATE INDEX idx_usuarios_perfil ON usuarios(perfil_id);

@@ -38,14 +38,8 @@ class UIManager {
     const user = this.auth.getCurrentUser();
     document.getElementById('currentUserName').textContent = user.username;
     document.getElementById('currentUserRole').textContent = user.perfil;
-
-    // Mostrar/esconder menu admin
-    const adminItems = document.querySelectorAll('.admin-only');
-    adminItems.forEach(item => {
-      item.style.display = this.auth.isAdmin() ? 'flex' : 'none';
-    });
-
-    this.navigateToView('dashboard');
+    this.applyNavigationPermissions();
+    this.navigateToView(this.auth.getDefaultView());
   }
 
   /**
@@ -53,12 +47,11 @@ class UIManager {
    * @param {string} viewName - Nome da view
    */
   async navigateToView(viewName) {
-    // Verificar permissão
-    if (viewName === 'admin' && !this.auth.isAdmin()) {
-      this.showToast('Acesso negado. Apenas administradores.', 'error');
+    if (!this.auth.canAccessView(viewName)) {
+      this.showToast('Acesso negado para esta funcionalidade.', 'error');
       return;
     }
-
+    // Verificar permissão
     this.currentView = viewName;
 
     // Atualizar navegação ativa
@@ -76,6 +69,14 @@ class UIManager {
       viewElement.classList.add('active');
       await this.renderView(viewName);
     }
+  }
+
+  applyNavigationPermissions() {
+    const navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(item => {
+      const view = item.getAttribute('data-view');
+      item.style.display = this.auth.canAccessView(view) ? 'flex' : 'none';
+    });
   }
 
   /**

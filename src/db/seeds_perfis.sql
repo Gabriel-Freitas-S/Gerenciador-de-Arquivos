@@ -29,7 +29,10 @@ INSERT INTO menus (nome, descricao, icone, rota, ordem, ativo) VALUES
 ('Usuários', 'Gerenciamento de usuários do sistema', 'person_add', 'usuarios', 11, 1),
 ('Perfis', 'Configuração de perfis de acesso', 'security', 'perfis', 12, 1),
 ('Logs', 'Auditoria e logs do sistema', 'history', 'logs', 13, 1),
-('Configurações', 'Configurações gerais do sistema', 'settings', 'configuracoes', 14, 1);
+('Configurações', 'Configurações gerais do sistema', 'settings', 'configuracoes', 14, 1),
+('Arquivo Morto', 'Consulta de arquivos arquivados', 'inventory_2', 'arquivoMorto', 15, 1),
+('Minhas Retiradas', 'Arquivos atualmente em posse do usuário', 'assignment_ind', 'minhasRetiradas', 16, 1),
+('Administração', 'Painel administrativo com cadastros e aprovações', 'admin_panel_settings', 'admin', 17, 1);
 
 -- ============================================
 -- PERMISSÕES: ADMINISTRADOR (Acesso Total)
@@ -48,7 +51,10 @@ INSERT INTO perfis_menus (perfil_id, menu_id) VALUES
 (1, 11), -- Usuários
 (1, 12), -- Perfis
 (1, 13), -- Logs
-(1, 14); -- Configurações
+(1, 14), -- Configurações
+(1, 15), -- Arquivo Morto
+(1, 16), -- Minhas Retiradas
+(1, 17); -- Administração
 
 -- ============================================
 -- PERMISSÕES: OPERADOR COMPLETO
@@ -63,7 +69,9 @@ INSERT INTO perfis_menus (perfil_id, menu_id) VALUES
 (2, 7),  -- Retiradas
 (2, 8),  -- Alertas
 (2, 9),  -- Movimentações
-(2, 10); -- Relatórios
+(2, 10), -- Relatórios
+(2, 15), -- Arquivo Morto
+(2, 16); -- Minhas Retiradas
 
 -- ============================================
 -- PERMISSÕES: OPERADOR CONSULTA
@@ -74,7 +82,8 @@ INSERT INTO perfis_menus (perfil_id, menu_id) VALUES
 (3, 4),  -- Gavetas (apenas visualização)
 (3, 5),  -- Pastas (apenas visualização)
 (3, 7),  -- Retiradas (apenas visualização)
-(3, 10); -- Relatórios
+(3, 10), -- Relatórios
+(3, 16); -- Minhas Retiradas
 
 -- ============================================
 -- PERMISSÕES: ARQUIVISTA
@@ -86,7 +95,9 @@ INSERT INTO perfis_menus (perfil_id, menu_id) VALUES
 (4, 4),  -- Gavetas (foco principal)
 (4, 5),  -- Pastas (foco principal)
 (4, 9),  -- Movimentações
-(4, 10); -- Relatórios
+(4, 10), -- Relatórios
+(4, 15), -- Arquivo Morto
+(4, 16); -- Minhas Retiradas
 
 -- ============================================
 -- FUNCIONÁRIOS DE EXEMPLO

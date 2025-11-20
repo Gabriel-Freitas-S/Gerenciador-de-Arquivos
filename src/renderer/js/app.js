@@ -748,6 +748,7 @@ class HospitalFileManagementApp {
     const menus = await this.carregarMenusDisponiveis();
     let menusSelecionados = [];
     let usuario = null;
+    const perfis = await this.db.getPerfis();
 
     if (usuarioId) {
       // Edição - carregar dados do usuário
@@ -758,6 +759,9 @@ class HospitalFileManagementApp {
 
     const checkboxesHtml = this.renderizarCheckboxesMenus(menus, menusSelecionados);
     const titulo = usuarioId ? 'Editar Usuário' : 'Novo Usuário';
+    const perfisOptions = perfis.map(perfil => `
+        <option value="${perfil.id}" ${usuario?.perfil_id === perfil.id ? 'selected' : ''}>${perfil.nome}</option>
+      `).join('');
 
     this.ui.openModal(titulo, `
       <form id="formNovoUsuario">
@@ -772,8 +776,8 @@ class HospitalFileManagementApp {
         <div class="form-group">
           <label>Perfil *</label>
           <select class="form-control" id="novoPerfil" required>
-            <option value="Usuário Operacional" ${usuario?.perfil === 'Usuário Operacional' ? 'selected' : ''}>Usuário Operacional</option>
-            <option value="Administrador" ${usuario?.perfil === 'Administrador' ? 'selected' : ''}>Administrador</option>
+            <option value="">Selecione...</option>
+            ${perfisOptions}
           </select>
         </div>
         
@@ -798,8 +802,7 @@ class HospitalFileManagementApp {
    */
   async carregarMenusDisponiveis() {
     try {
-      const result = await window.electronAPI.getMenus();
-      return result.success ? result.data : [];
+      return await this.db.getMenus();
     } catch (error) {
       console.error('Erro ao carregar menus:', error);
       return [];
@@ -811,8 +814,7 @@ class HospitalFileManagementApp {
    */
   async carregarMenusUsuario(usuarioId) {
     try {
-      const result = await window.electronAPI.getMenusByUsuario(usuarioId);
-      const menusData = result.success ? result.data : [];
+      const menusData = await this.db.getMenusByUsuario(usuarioId);
       return menusData.map(m => m.id || m.menu_id);
     } catch (error) {
       console.error('Erro ao carregar menus do usuário:', error);
@@ -848,14 +850,15 @@ class HospitalFileManagementApp {
   async salvarUsuario(usuarioId = null) {
     const username = document.getElementById('novoUsername').value;
     const senha = document.getElementById('novaSenha').value;
-    const perfil = document.getElementById('novoPerfil').value;
+    const perfilValue = document.getElementById('novoPerfil').value;
+    const perfilId = perfilValue ? parseInt(perfilValue, 10) : null;
 
     // Coletar menus selecionados
     const checkboxes = document.querySelectorAll('input[name="menus"]:checked');
-    const menusSelecionados = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    const menusSelecionados = Array.from(checkboxes).map(cb => parseInt(cb.value, 10));
 
     // Validações
-    if (!username || !perfil) {
+    if (!username || !perfilId) {
       this.ui.showToast('Preencha todos os campos obrigatórios', 'error');
       return;
     }
@@ -875,21 +878,25 @@ class HospitalFileManagementApp {
       
       if (usuarioId) {
         // Atualizar usuário existente
-        const updateData = { perfil };
+        const updateData = {
+          username,
+          perfil_id: perfilId,
+          funcionario_id: null
+        };
         if (senha) {
-          updateData.senha = senha;
+          await this.db.updateUsuarioSenha(usuarioId, senha);
         }
         result = await this.db.updateUsuario(usuarioId, updateData);
       } else {
         // Criar novo usuário
-        result = await this.db.addUsuario({ username, senha, perfil });
+        result = await this.db.addUsuario({ username, senha, perfil_id: perfilId });
       }
       
       if (result.success) {
-        const userId = usuarioId || result.id;
+        const userId = usuarioId || result.lastInsertRowid;
         
         // Atualizar permissões de menu
-        const menusResult = await window.electronAPI.usuariosAtualizarMenus(userId, menusSelecionados);
+        const menusResult = await this.db.atualizarMenusUsuario(userId, menusSelecionados);
         
         if (menusResult.success) {
           await this.db.addLog(`Usuário ${usuarioId ? 'atualizado' : 'criado'}: ${username}`, this.auth.getUserId());

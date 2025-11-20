@@ -91,15 +91,41 @@ function createWindow() {
  * Configura todos os handlers IPC para comunicação com o renderer
  */
 function setupIpcHandlers() {
+  const getMenusForUsuario = (usuarioId) => {
+    const customMenus = db.prepare(`
+      SELECT m.*
+      FROM usuarios_menus um
+      INNER JOIN menus m ON um.menu_id = m.id
+      WHERE um.usuario_id = ? AND m.ativo = 1
+      ORDER BY m.ordem
+    `).all(usuarioId);
+
+    if (customMenus.length > 0) {
+      return customMenus;
+    }
+
+    return db.prepare(`
+      SELECT m.*
+      FROM menus m
+      INNER JOIN perfis_menus pm ON m.id = pm.menu_id
+      INNER JOIN usuarios u ON u.perfil_id = pm.perfil_id
+      WHERE u.id = ? AND m.ativo = 1
+      ORDER BY m.ordem
+    `).all(usuarioId);
+  };
+
   // ============================================
   // AUTENTICAÇÃO
   // ============================================
   
   ipcMain.handle('auth:login', async (event, username, password) => {
     try {
-      const user = db.prepare(
-        'SELECT * FROM usuarios WHERE username = ? AND ativo = 1'
-      ).get(username);
+      const user = db.prepare(`
+        SELECT u.*, p.nome as perfil_nome
+        FROM usuarios u
+        LEFT JOIN perfis p ON u.perfil_id = p.id
+        WHERE u.username = ? AND u.ativo = 1
+      `).get(username);
       
       if (user && user.senha === password) {
         // Não retornar senha
@@ -457,14 +483,7 @@ function setupIpcHandlers() {
   // Buscar menus de um usuário (através do perfil)
   ipcMain.handle('usuarios:menus', async (event, usuarioId) => {
     try {
-      const result = db.prepare(`
-        SELECT m.*
-        FROM menus m
-        INNER JOIN perfis_menus pm ON m.id = pm.menu_id
-        INNER JOIN usuarios u ON u.perfil_id = pm.perfil_id
-        WHERE u.id = ? AND m.ativo = 1
-        ORDER BY m.ordem
-      `).all(usuarioId);
+      const result = getMenusForUsuario(usuarioId);
       return { success: true, data: result };
     } catch (error) {
       console.error('Erro ao buscar menus do usuário:', error);
@@ -486,17 +505,87 @@ function setupIpcHandlers() {
         return { success: false, message: 'Usuário não encontrado' };
       }
       
-      const menus = db.prepare(`
-        SELECT m.*
-        FROM menus m
-        INNER JOIN perfis_menus pm ON m.id = pm.menu_id
-        WHERE pm.perfil_id = ? AND m.ativo = 1
-        ORDER BY m.ordem
-      `).all(usuario.perfil_id);
+      const menus = getMenusForUsuario(usuarioId);
       
       return { success: true, data: { ...usuario, menus } };
     } catch (error) {
       console.error('Erro ao buscar perfil completo do usuário:', error);
+      return { success: false, message: error.message };
+    }
+  });
+
+  // ============================================
+  // ALERTAS - ATUALIZACAO AUTOMATICA
+  // ============================================
+  
+  ipcMain.handle('alertas:atualizar', async () => {
+    try {
+      db.prepare(`
+        UPDATE retiradas_com_pessoas 
+        SET dias_decorridos = CAST((julianday('now') - julianday(data_retirada)) AS INTEGER)
+        WHERE status = 'ativo'
+      `).run();
+      
+      const retiradas = db.prepare(`
+        SELECT r.*, f.status as funcionario_status
+        FROM retiradas_com_pessoas r
+        JOIN funcionarios f ON r.funcionario_id = f.id
+        WHERE r.status = 'ativo'
+      `).all();
+      
+      const insertAlerta = db.prepare(`
+        INSERT OR IGNORE INTO alertas (retirada_id, tipo_alerta, severidade, resolvido)
+        VALUES (?, ?, ?, 0)
+      `);
+      
+      for (const ret of retiradas) {
+        const prazo = ret.funcionario_status === 'Demitido' ? 3 : 7;
+        
+        if (ret.dias_decorridos >= prazo) {
+          insertAlerta.run(
+            ret.id,
+            `Prazo de devolucao vencido ha ${ret.dias_decorridos - prazo} dias`,
+            'crítico'
+          );
+        } else if (ret.dias_decorridos >= prazo - 2) {
+          insertAlerta.run(
+            ret.id,
+            `Prazo de devolucao se aproximando (${prazo - ret.dias_decorridos} dias restantes)`,
+            'aviso'
+          );
+        }
+      }
+      
+      console.log(`Alertas atualizados: ${retiradas.length} retiradas verificadas`);
+      return { success: true, message: 'Alertas atualizados' };
+    } catch (error) {
+      console.error('Erro ao atualizar alertas:', error);
+      return { success: false, message: error.message };
+    }
+  });
+  
+  // ============================================
+  // USUARIOS - ATUALIZAR MENUS/PERMISSOES
+  // ============================================
+  
+  ipcMain.handle('usuarios:atualizar-menus', async (event, usuarioId, menuIds = []) => {
+    try {
+      const deleteMenus = db.prepare('DELETE FROM usuarios_menus WHERE usuario_id = ?');
+      const insertMenu = db.prepare('INSERT INTO usuarios_menus (usuario_id, menu_id) VALUES (?, ?)');
+      
+      const transaction = db.transaction(() => {
+        deleteMenus.run(usuarioId);
+        
+        for (const menuId of menuIds) {
+          insertMenu.run(usuarioId, menuId);
+        }
+      });
+      
+      transaction();
+      console.log(`Permissoes atualizadas para usuario ${usuarioId}: ${menuIds.length} menus`);
+      return { success: true, message: 'Permissões atualizadas' };
+    } catch (error) {
+      console.error('Erro ao atualizar menus do usuário:', error);
       return { success: false, message: error.message };
     }
   });
