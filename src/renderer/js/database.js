@@ -281,6 +281,7 @@ class DatabaseLayer {
     const result = await window.electronAPI.addPasta(payload);
     this.clearSpecificCache('pastas');
     this.clearSpecificCache('gavetas'); // Atualiza ocupação
+    this.clearSpecificCache('funcionarios');
     return result;
   }
 
@@ -367,7 +368,11 @@ class DatabaseLayer {
    * @returns {Promise<Object>}
    */
   async createSolicitacao(data) {
-    const result = await window.electronAPI.createSolicitacao(data);
+    const payload = {
+      ...data,
+      envelopes: Array.isArray(data.envelopes) ? data.envelopes : []
+    };
+    const result = await window.electronAPI.createSolicitacao(payload);
     this.clearSpecificCache('solicitacoes');
     return result;
   }
@@ -381,6 +386,9 @@ class DatabaseLayer {
     const result = await window.electronAPI.aprovarSolicitacao(id);
     this.clearSpecificCache('solicitacoes');
     this.clearSpecificCache('retiradas');
+    this.clearSpecificCache('pastas');
+    this.clearSpecificCache('gavetas');
+    this.clearSpecificCache('funcionarios');
     return result;
   }
 
@@ -425,7 +433,11 @@ class DatabaseLayer {
    * @returns {Promise<Object>}
    */
   async createRetirada(data) {
-    const result = await window.electronAPI.createRetirada(data);
+    const payload = {
+      ...data,
+      envelopes: Array.isArray(data.envelopes) ? data.envelopes : []
+    };
+    const result = await window.electronAPI.createRetirada(payload);
     this.clearSpecificCache('retiradas');
     return result;
   }
@@ -439,6 +451,7 @@ class DatabaseLayer {
     const result = await window.electronAPI.finalizarRetirada(id);
     this.clearSpecificCache('retiradas');
     this.clearSpecificCache('alertas');
+    this.clearSpecificCache('envelopes');
     return result;
   }
 

@@ -96,6 +96,7 @@ CREATE TABLE usuarios (
 CREATE TABLE funcionarios (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL,
+    matricula TEXT UNIQUE,
     departamento TEXT NOT NULL,
     especialidade TEXT, -- CORRIGIDO: era posto_graduacao
     data_admissao DATE NOT NULL,
@@ -165,13 +166,17 @@ CREATE TABLE solicitacoes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     usuario_id INTEGER NOT NULL,
     funcionario_id INTEGER NOT NULL,
+    pasta_id INTEGER,
     motivo TEXT NOT NULL,
     data_solicitacao DATETIME DEFAULT CURRENT_TIMESTAMP,
     status TEXT NOT NULL CHECK(status IN ('pendente', 'aprovada', 'rejeitada')),
     data_aprovacao DATETIME,
     motivo_rejeicao TEXT,
+    envelopes_solicitados TEXT NOT NULL DEFAULT '[]',
+    is_demissao INTEGER NOT NULL DEFAULT 0 CHECK(is_demissao IN (0, 1)),
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
-    FOREIGN KEY (funcionario_id) REFERENCES funcionarios(id)
+    FOREIGN KEY (funcionario_id) REFERENCES funcionarios(id),
+    FOREIGN KEY (pasta_id) REFERENCES pastas(id)
 );
 
 -- ============================================
@@ -182,6 +187,7 @@ CREATE TABLE retiradas_com_pessoas (
     pasta_id INTEGER NOT NULL,
     usuario_id INTEGER NOT NULL,
     funcionario_id INTEGER NOT NULL,
+    envelopes TEXT NOT NULL DEFAULT '[]',
     data_retirada DATETIME NOT NULL,
     data_prevista_retorno DATETIME NOT NULL,
     data_retorno DATETIME,

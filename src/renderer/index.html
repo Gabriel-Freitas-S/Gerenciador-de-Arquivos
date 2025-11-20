@@ -241,8 +241,9 @@
                 <div class="view-header">
                     <h1>Solicitar Retirada de Arquivo</h1>
                 </div>
-                <div class="search-bar">
-                    <input type="text" id="searchFuncionarios" class="form-control" placeholder="Buscar funcionário por nome...">
+                <div class="search-bar search-bar--dual">
+                    <input type="text" id="searchFuncionarioNome" class="form-control" placeholder="Buscar por nome...">
+                    <input type="text" id="searchFuncionarioMatricula" class="form-control" placeholder="Buscar por matrícula...">
                 </div>
                 <div id="funcionariosContainer" class="table-container"></div>
             </div>
@@ -334,13 +335,6 @@
                     <h2>Solicitações Pendentes de Aprovação</h2>
                 </div>
                 <div id="solicitacoesPendentesContainer" class="table-container" style="margin-bottom: 32px;"></div>
-
-                <!-- Gerenciamento de Funcionários -->
-                <div class="section-header">
-                    <h2>Gerenciamento de Funcionários</h2>
-                    <button id="btnNovoFuncionario" class="btn btn--primary">+ Novo Funcionário</button>
-                </div>
-                <div id="funcionariosAdminContainer" class="table-container" style="margin-bottom: 32px;"></div>
 
                 <!-- Gerenciamento de Usuários -->
                 <div class="section-header">

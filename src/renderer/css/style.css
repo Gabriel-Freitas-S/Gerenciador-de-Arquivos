@@ -1300,6 +1300,58 @@ tr:hover {
   max-width: 500px;
 }
 
+.search-bar--dual {
+  display: flex;
+  gap: var(--space-16);
+  flex-wrap: wrap;
+}
+
+.search-bar--dual input {
+  max-width: none;
+  flex: 1;
+  min-width: 220px;
+}
+
+.checkbox-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-12);
+}
+
+.checkbox-list label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-md);
+  background: var(--color-background);
+  cursor: pointer;
+}
+
+.form-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+}
+
+.envelope-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.envelope-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 12px;
+  border-radius: var(--radius-full);
+  background: var(--color-secondary);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
 /* Gavetas Grid */
 .gaveteiro-card {
   background: var(--color-surface);

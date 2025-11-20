@@ -13,6 +13,7 @@ class HospitalFileManagementApp {
     this.auth = new AuthManager();
     this.db = new DatabaseLayer();
     this.ui = new UIManager(this.auth, this.db);
+    this.currentSolicitacaoContext = null;
     
     console.log('🏭 Sistema de Gerenciamento de Arquivos Hospital - Inicializando...');
   }
@@ -77,10 +78,6 @@ class HospitalFileManagementApp {
       this.abrirModalNovaPasta();
     });
 
-    document.getElementById('btnNovoFuncionario')?.addEventListener('click', () => {
-      this.abrirModalNovoFuncionario();
-    });
-
     document.getElementById('btnNovoUsuario')?.addEventListener('click', () => {
       this.abrirModalNovoUsuario();
     });
@@ -97,8 +94,10 @@ class HospitalFileManagementApp {
       this.ui.renderMovimentacoes(e.target.value);
     });
 
-    document.getElementById('searchFuncionarios')?.addEventListener('input', (e) => {
-      this.ui.renderSolicitacoes(e.target.value);
+    ['searchFuncionarioNome', 'searchFuncionarioMatricula'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => {
+        this.ui.renderSolicitacoes();
+      });
     });
 
     // ==========================================
@@ -115,6 +114,10 @@ class HospitalFileManagementApp {
         console.warn('Erro na atualização periódica de alertas:', error);
       }
     }, 60000); // A cada minuto
+  }
+
+  closeModal() {
+    this.ui.closeModal();
   }
 
   // ==========================================
@@ -167,6 +170,65 @@ class HospitalFileManagementApp {
    */
   async abrirModalSolicitacao(funcionarioId) {
     const funcionario = await this.db.getFuncionarioById(funcionarioId);
+    const pastas = await this.db.getPastas();
+    const pasta = pastas.find(p => p.funcionario_id === funcionarioId && p.ativa && !p.arquivo_morto);
+
+    if (!pasta) {
+      this.ui.showToast('Este funcionário não possui pasta ativa para retirada.', 'warning');
+      return;
+    }
+
+    const envelopes = await this.db.getEnvelopesByPasta(pasta.id);
+    if (!envelopes.length) {
+      this.ui.showToast('Nenhum envelope disponível para esta pasta.', 'warning');
+      return;
+    }
+
+    const solicitacoesPendentes = await this.db.getSolicitacoesPendentes();
+    const pendentesSet = new Set();
+    solicitacoesPendentes
+      .filter(sol => sol.pasta_id === pasta.id)
+      .forEach(sol => {
+        const itens = this.ui.parseEnvelopeList(sol.envelopes_solicitados);
+        itens.forEach(tipo => pendentesSet.add(tipo));
+      });
+
+    const disponiveisSet = new Set(
+      envelopes
+        .filter(env => env.status === 'presente' && !pendentesSet.has(env.tipo))
+        .map(env => env.tipo)
+    );
+
+    if (disponiveisSet.size === 0) {
+      this.ui.showToast('Todos os envelopes desta pasta estão indisponíveis no momento.', 'warning');
+      return;
+    }
+
+    const demissaoDisponivel = disponiveisSet.size === envelopes.length;
+
+    this.currentSolicitacaoContext = {
+      pastaId: pasta.id,
+      envelopes,
+      disponiveis: disponiveisSet
+    };
+
+    const envelopeOptionsHtml = envelopes.map(env => {
+      const reservado = pendentesSet.has(env.tipo);
+      const disponivel = env.status === 'presente' && !reservado;
+      const disabledAttr = disponivel ? '' : 'disabled';
+      let statusTag = '';
+      if (!disponivel) {
+        statusTag = env.status !== 'presente'
+          ? '<span class="status status--warning">Retirado</span>'
+          : '<span class="status status--pending">Reservado</span>';
+      }
+      return `
+        <label>
+          <input type="checkbox" name="envelopeSelecionado" value="${env.tipo}" data-disponivel="${disponivel}" ${disabledAttr}>
+          ${this.ui.formatEnvelopeTipo(env.tipo)} ${statusTag}
+        </label>
+      `;
+    }).join('');
     
     this.ui.openModal(`Solicitar Retirada - ${funcionario.nome}`, `
       <form id="formSolicitacao">
@@ -175,32 +237,84 @@ class HospitalFileManagementApp {
           <input type="text" class="form-control" value="${funcionario.nome}" disabled>
         </div>
         <div class="form-group">
-          <label>Departamento</label>
+          <label>Setor</label>
           <input type="text" class="form-control" value="${funcionario.departamento}" disabled>
+        </div>
+        <div class="form-group">
+          <label>Matrícula</label>
+          <input type="text" class="form-control" value="${funcionario.matricula || 'Sem registro'}" disabled>
         </div>
         <div class="form-group">
           <label>Motivo da Retirada *</label>
           <textarea class="form-control" id="motivoSolicitacao" rows="3" placeholder="Ex: Auditoria ocupacional, revisão de documentos, etc." required></textarea>
         </div>
         <div class="form-group">
-          <label>Data Necessária</label>
-          <input type="date" class="form-control" id="dataNecessaria" value="${this.ui.getCurrentDate()}">
+          <label>Tipo de Retirada *</label>
+          <select class="form-control" id="tipoSolicitacao" onchange="app.onTipoSolicitacaoChange()" required>
+            <option value="regular" selected>Consulta / Rotina</option>
+            <option value="demissao" ${demissaoDisponivel ? '' : 'disabled'}>Demissão</option>
+          </select>
+          <div class="form-hint">
+            ${demissaoDisponivel
+              ? 'Quando "Demissão" for selecionado, a pasta completa irá direto para o arquivo morto.'
+              : 'Demissão disponível apenas quando todos os envelopes estiverem presentes na pasta.'}
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Quais envelopes deseja retirar?</label>
+          <div class="checkbox-list">
+            ${envelopeOptionsHtml}
+          </div>
+          <div class="form-hint">Selecione pelo menos um envelope para retirar.</div>
         </div>
       </form>
     `, `
       <button class="btn btn--outline" onclick="app.ui.closeModal()">Cancelar</button>
-      <button class="btn btn--primary" onclick="app.salvarSolicitacao(${funcionarioId})">Enviar Solicitação</button>
+      <button class="btn btn--primary" onclick="app.salvarSolicitacao(${funcionarioId}, ${pasta.id})">Enviar Solicitação</button>
     `);
   }
 
   /**
    * Salva solicitação de retirada
    */
-  async salvarSolicitacao(funcionarioId) {
+  async salvarSolicitacao(funcionarioId, pastaId) {
     const motivo = document.getElementById('motivoSolicitacao').value;
+    const tipoSolicitacao = document.getElementById('tipoSolicitacao').value;
+    const checkboxes = Array.from(document.querySelectorAll('input[name="envelopeSelecionado"]:checked'));
 
     if (!motivo) {
       this.ui.showToast('Informe o motivo da solicitação', 'error');
+      return;
+    }
+
+    let envelopesSelecionados = checkboxes.map(cb => cb.value);
+    const context = this.currentSolicitacaoContext;
+    if (tipoSolicitacao === 'demissao' && context?.envelopes) {
+      envelopesSelecionados = context.envelopes.map(env => env.tipo);
+    }
+
+    envelopesSelecionados = Array.from(new Set(envelopesSelecionados));
+
+    if (!envelopesSelecionados.length) {
+      this.ui.showToast('Selecione pelo menos um envelope para retirar.', 'error');
+      return;
+    }
+
+    const disponiveisSet = context?.disponiveis;
+    if (!disponiveisSet) {
+      this.ui.showToast('Não foi possível validar os envelopes disponíveis.', 'error');
+      return;
+    }
+
+    const possuiIndisponivel = envelopesSelecionados.some(tipo => !disponiveisSet.has(tipo));
+    if (possuiIndisponivel) {
+      this.ui.showToast('Um dos envelopes selecionados já está reservado ou retirado.', 'warning');
+      return;
+    }
+
+    const pastaAtivaId = pastaId || context?.pastaId;
+    if (!pastaAtivaId) {
+      this.ui.showToast('Não foi possível localizar a pasta do funcionário.', 'error');
       return;
     }
 
@@ -208,22 +322,45 @@ class HospitalFileManagementApp {
       const result = await this.db.createSolicitacao({
         usuario_id: this.auth.getUserId(),
         funcionario_id: funcionarioId,
-        motivo: motivo
+        motivo: motivo,
+        pasta_id: pastaAtivaId,
+        envelopes: envelopesSelecionados,
+        is_demissao: tipoSolicitacao === 'demissao'
       });
 
       if (result.success) {
         const funcionario = await this.db.getFuncionarioById(funcionarioId);
         await this.db.addLog(`Solicitação criada para arquivo de ${funcionario.nome}`, this.auth.getUserId());
         this.ui.closeModal();
+        this.currentSolicitacaoContext = null;
         await this.ui.renderSolicitacoes();
         this.ui.showToast('Solicitação enviada! Aguarde aprovação do administrador.', 'success');
       } else {
-        this.ui.showToast('Erro ao criar solicitação', 'error');
+        this.ui.showToast(result.message || 'Erro ao criar solicitação', 'error');
       }
     } catch (error) {
       console.error('Erro ao salvar solicitação:', error);
       this.ui.showToast('Erro ao criar solicitação', 'error');
     }
+  }
+
+  onTipoSolicitacaoChange() {
+    const tipo = document.getElementById('tipoSolicitacao')?.value;
+    const checkboxes = document.querySelectorAll('input[name="envelopeSelecionado"]');
+    if (!checkboxes?.length) return;
+
+    checkboxes.forEach(cb => {
+      const disponivel = cb.getAttribute('data-disponivel') !== 'false';
+      if (tipo === 'demissao') {
+        cb.checked = true;
+        cb.disabled = true;
+      } else {
+        cb.disabled = !disponivel;
+        if (!disponivel) {
+          cb.checked = false;
+        }
+      }
+    });
   }
 
   /**
@@ -236,9 +373,12 @@ class HospitalFileManagementApp {
       if (result.success) {
         await this.db.addLog(`Solicitação ${solicitacaoId} aprovada`, this.auth.getUserId());
         await this.ui.renderAdmin();
-        this.ui.showToast('Solicitação aprovada e arquivo registrado como retirado!', 'success');
+        const mensagem = result.mode === 'demissao'
+          ? 'Solicitação aprovada e pasta enviada ao arquivo morto!'
+          : 'Solicitação aprovada e retirada registrada!';
+        this.ui.showToast(mensagem, 'success');
       } else {
-        this.ui.showToast('Erro ao aprovar solicitação', 'error');
+        this.ui.showToast(result.message || 'Erro ao aprovar solicitação', 'error');
       }
     } catch (error) {
       console.error('Erro ao aprovar solicitação:', error);
@@ -246,16 +386,34 @@ class HospitalFileManagementApp {
     }
   }
 
+  abrirModalRejeitarSolicitacao(solicitacaoId) {
+    this.ui.openModal('Rejeitar Solicitação', `
+      <form id="formRejeicaoSolicitacao">
+        <div class="form-group">
+          <label>Motivo da rejeição (opcional)</label>
+          <textarea class="form-control" id="motivoRejeicao" rows="3" placeholder="Descreva o motivo, se necessário."></textarea>
+        </div>
+      </form>
+    `, `
+      <button class="btn btn--outline" onclick="app.ui.closeModal()">Cancelar</button>
+      <button class="btn btn--danger" onclick="app.confirmarRejeicaoSolicitacao(${solicitacaoId})">Rejeitar</button>
+    `);
+  }
+
+  async confirmarRejeicaoSolicitacao(solicitacaoId) {
+    const motivo = document.getElementById('motivoRejeicao')?.value?.trim() || '';
+    await this.rejeitarSolicitacao(solicitacaoId, motivo);
+  }
+
   /**
    * Rejeita solicitação (admin)
    */
-  async rejeitarSolicitacao(solicitacaoId) {
-    const motivo = prompt('Motivo da rejeição (opcional):');
-    
+  async rejeitarSolicitacao(solicitacaoId, motivo = '') {
     try {
       const result = await this.db.rejeitarSolicitacao(solicitacaoId, motivo);
       
       if (result.success) {
+        this.ui.closeModal();
         await this.db.addLog(`Solicitação ${solicitacaoId} rejeitada`, this.auth.getUserId());
         await this.ui.renderAdmin();
         this.ui.showToast('Solicitação rejeitada', 'success');
@@ -289,7 +447,7 @@ class HospitalFileManagementApp {
           await this.ui.renderMinhasRetiradas();
           this.ui.showToast('Arquivo devolvido com sucesso!', 'success');
         } else {
-          this.ui.showToast('Erro ao devolver arquivo', 'error');
+          this.ui.showToast(result.message || 'Erro ao devolver arquivo', 'error');
         }
       }
     } catch (error) {
@@ -444,7 +602,6 @@ class HospitalFileManagementApp {
   async abrirModalNovaPasta() {
     const gaveteiros = await this.db.getGaveteiros();
     const gavetas = await this.db.getGavetas();
-    const funcionarios = (await this.db.getFuncionarios()).filter(f => f.status === 'Ativo');
     
     let options = '';
     gaveteiros.forEach(gaveteiro => {
@@ -461,24 +618,8 @@ class HospitalFileManagementApp {
       options = '<option value="">Nenhuma gaveta com espaço disponível</option>';
     }
 
-    let funcionarioOptions = funcionarios
-      .map(func => `<option value="${func.id}">${func.nome} - ${func.departamento}</option>`)
-      .join('');
-
-    if (!funcionarioOptions) {
-      funcionarioOptions = '<option value="">Nenhum funcionário ativo disponível</option>';
-    }
-
     this.ui.openModal('Nova Pasta', `
       <form id="formNovaPasta">
-        <div class="form-group">
-          <label>Funcionário</label>
-          <select class="form-control" id="funcionarioSelect" required>
-            <option value="">Selecione...</option>
-            ${funcionarioOptions}
-          </select>
-          ${funcionarios.length === 0 ? '<small style="color: var(--color-danger);">Cadastre funcionários ativos antes de criar pastas.</small>' : ''}
-        </div>
         <div class="form-group">
           <label>Gaveta</label>
           <select class="form-control" id="gavetaSelect" required>
@@ -487,8 +628,20 @@ class HospitalFileManagementApp {
           </select>
         </div>
         <div class="form-group">
-          <label>Nome da Pasta (ex: nome do funcionário)</label>
-          <input type="text" class="form-control" id="nomePasta" required>
+          <label>Nome do Funcionário</label>
+          <input type="text" class="form-control" id="nomePasta" placeholder="Ex: Maria Silva" required>
+        </div>
+        <div class="form-group">
+          <label>Matrícula</label>
+          <input type="text" class="form-control" id="matriculaPasta" placeholder="Ex: 123456" required>
+        </div>
+        <div class="form-group">
+          <label>Setor</label>
+          <input type="text" class="form-control" id="setorPasta" placeholder="Ex: Recursos Humanos" required>
+        </div>
+        <div class="form-group">
+          <label>Data de Admissão</label>
+          <input type="date" class="form-control" id="dataAdmissaoPasta" value="${this.ui.getCurrentDate()}" required>
         </div>
         <div class="alert alert-info" style="margin-top: 16px;">
           <strong>Info:</strong> Serão criados automaticamente 4 envelopes: Segurança, Medicina do Trabalho, Pessoal e Treinamento.
@@ -505,26 +658,36 @@ class HospitalFileManagementApp {
    */
   async salvarPasta() {
     const gaveta_id = parseInt(document.getElementById('gavetaSelect').value);
-    const nome = document.getElementById('nomePasta').value;
-    const funcionario_id = parseInt(document.getElementById('funcionarioSelect').value);
+    const nome = document.getElementById('nomePasta').value?.trim();
+    const matricula = document.getElementById('matriculaPasta').value?.trim()?.toUpperCase();
+    const setor = document.getElementById('setorPasta').value?.trim();
+    const dataAdmissao = document.getElementById('dataAdmissaoPasta').value;
 
-    if (!gaveta_id || !nome || !funcionario_id) {
+    if (!gaveta_id || !nome || !matricula || !setor || !dataAdmissao) {
       this.ui.showToast('Preencha todos os campos', 'error');
       return;
     }
 
     try {
       const pastasExistentes = await this.db.getPastas();
-      const pastaDoFuncionario = pastasExistentes.find(p => p.funcionario_id === funcionario_id);
+      const pastaDoFuncionario = pastasExistentes.find(p => {
+        if (p.funcionario_matricula && p.funcionario_matricula.toUpperCase() === matricula) {
+          return true;
+        }
+        return p.nome.toLowerCase() === nome.toLowerCase();
+      });
       if (pastaDoFuncionario) {
-        this.ui.showToast('Este funcionário já possui uma pasta ativa.', 'warning');
+        this.ui.showToast('Já existe uma pasta ativa para este funcionário.', 'warning');
         return;
       }
 
       const result = await this.db.addPasta({
         gaveta_id,
-        funcionario_id,
         nome,
+        funcionario_nome: nome,
+        funcionario_matricula: matricula,
+        funcionario_setor: setor,
+        funcionario_data_admissao: dataAdmissao,
         data_criacao: this.ui.getCurrentDate()
       });
       
@@ -556,6 +719,10 @@ class HospitalFileManagementApp {
     let html = `
       <div style="margin-bottom: 16px;">
         <strong>Pasta:</strong> ${pasta.nome}<br>
+        <strong>Funcionário:</strong> ${pasta.funcionario_nome || pasta.nome}<br>
+        <strong>Matrícula:</strong> ${pasta.funcionario_matricula || 'N/A'}<br>
+        <strong>Setor:</strong> ${pasta.funcionario_departamento || 'N/A'}<br>
+        <strong>Admissão:</strong> ${this.ui.formatarData(pasta.funcionario_data_admissao)}<br>
         <strong>Localização:</strong> ${gaveteiro?.nome} - Gaveta ${gaveta?.numero}<br>
         <strong>Local:</strong> ${gaveteiro?.localizacao}
       </div>
@@ -666,102 +833,6 @@ class HospitalFileManagementApp {
   }
 
   // ==========================================
-  // FUNCIONÁRIOS (ADMIN)
-  // ==========================================
-
-  /**
-   * Abre modal para criar funcionário
-   */
-  abrirModalNovoFuncionario() {
-    this.ui.openModal('Novo Funcionário', `
-      <form id="formNovoFuncionario">
-        <div class="form-group">
-          <label>Nome Completo *</label>
-          <input type="text" class="form-control" id="nomeFuncionario" required>
-        </div>
-        <div class="form-group">
-          <label>Departamento *</label>
-          <input type="text" class="form-control" id="departamentoFuncionario" required>
-        </div>
-        <div class="form-group">
-          <label>Data de Admissão *</label>
-          <input type="date" class="form-control" id="dataAdmissao" required>
-        </div>
-      </form>
-    `, `
-      <button class="btn btn--outline" onclick="app.ui.closeModal()">Cancelar</button>
-      <button class="btn btn--primary" onclick="app.salvarFuncionario()">Salvar</button>
-    `);
-  }
-
-  /**
-   * Salva novo funcionário
-   */
-  async salvarFuncionario() {
-    const nome = document.getElementById('nomeFuncionario').value;
-    const departamento = document.getElementById('departamentoFuncionario').value;
-    const dataAdmissao = document.getElementById('dataAdmissao').value;
-
-    if (!nome || !departamento || !dataAdmissao) {
-      this.ui.showToast('Preencha todos os campos obrigatórios', 'error');
-      return;
-    }
-
-    try {
-      const result = await this.db.addFuncionario({
-        nome,
-        departamento,
-        data_admissao: dataAdmissao,
-        status: 'Ativo'
-      });
-      
-      if (result.success) {
-        await this.db.addLog(`Funcionário cadastrado: ${nome}`, this.auth.getUserId());
-        this.ui.closeModal();
-        await this.ui.renderAdmin();
-        this.ui.showToast('Funcionário cadastrado com sucesso!', 'success');
-      } else {
-        this.ui.showToast('Erro ao cadastrar funcionário', 'error');
-      }
-    } catch (error) {
-      console.error('Erro ao salvar funcionário:', error);
-      this.ui.showToast('Erro ao cadastrar funcionário', 'error');
-    }
-  }
-
-  /**
-   * Demite funcionário
-   */
-  async demitirFuncionario(funcionarioId) {
-    const dataDemissao = prompt('Data de demissão (AAAA-MM-DD):');
-    
-    if (!dataDemissao) return;
-
-    try {
-      const funcionario = await this.db.getFuncionarioById(funcionarioId);
-      const result = await this.db.demitirFuncionario(funcionarioId, dataDemissao);
-      
-      if (result.success) {
-        await this.db.addLog(`Funcionário demitido: ${funcionario.nome}`, this.auth.getUserId());
-        await this.ui.renderAdmin();
-        this.ui.showToast('Status atualizado para Demitido', 'success');
-      } else {
-        this.ui.showToast('Erro ao demitir funcionário', 'error');
-      }
-    } catch (error) {
-      console.error('Erro ao demitir funcionário:', error);
-      this.ui.showToast('Erro ao demitir funcionário', 'error');
-    }
-  }
-
-  /**
-   * Edita funcionário
-   */
-  editarFuncionario(funcionarioId) {
-    this.ui.showToast('Funcionalidade de edição em desenvolvimento', 'info');
-  }
-
-  // ==========================================
   // USUÁRIOS (ADMIN)
   // ==========================================
 
@@ -801,7 +872,7 @@ class HospitalFileManagementApp {
           <input type="text" class="form-control" id="novoUsername" value="${usuario?.username || ''}" required ${usuarioId ? 'disabled' : ''}>
         </div>
         <div class="form-group">
-          <label>Senha ${usuarioId ? '(deixe em branco para manter a atual)' : '*'}</label>
+          <label>Senha ${usuarioId ? '(deixe em branco para manter a atual)' : '*'} </label>
           <input type="password" class="form-control" id="novaSenha" ${usuarioId ? '' : 'required'}>
         </div>
         <div class="form-group">
@@ -830,7 +901,7 @@ class HospitalFileManagementApp {
 
   /**
    * Carrega menus disponíveis do sistema - CORRIGIDO
-   */
+            <option value="demissao" ${demissaoDisponivel ? '' : 'disabled'}>Demissão</option>
   async carregarMenusDisponiveis() {
     try {
       return await this.db.getMenus();

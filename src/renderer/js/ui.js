@@ -268,6 +268,7 @@ class UIManager {
         <thead>
           <tr>
             <th>Pasta</th>
+            <th>Envelopes</th>
             <th>Usuário</th>
             <th>Data Retirada</th>
             <th>Prazo Devolução</th>
@@ -284,6 +285,8 @@ class UIManager {
       const usuario = (await this.db.getUsuarios()).find(u => u.id === retirada.usuario_id);
       const diasDecorridos = this.calcularDiasDecorridos(retirada.data_retirada);
       const prazo = funcionario?.status === 'Demitido' ? 3 : 7;
+      const envelopes = this.parseEnvelopeList(retirada.envelopes);
+      const envelopeHtml = this.renderEnvelopeChips(envelopes);
       
       let statusClass = 'status--success';
       let statusText = `${diasDecorridos} dias`;
@@ -299,6 +302,7 @@ class UIManager {
       html += `
         <tr>
           <td><strong>${pasta?.nome || 'N/A'}</strong></td>
+          <td>${envelopeHtml}</td>
           <td>${usuario?.username || 'N/A'}</td>
           <td>${this.formatarDataHora(retirada.data_retirada)}</td>
           <td>${this.formatarDataHora(retirada.data_prevista_retorno)}</td>
@@ -319,12 +323,18 @@ class UIManager {
   /**
    * Renderiza lista de solicitações
    */
-  async renderSolicitacoes(filtro = '') {
+  async renderSolicitacoes() {
     const container = document.getElementById('funcionariosContainer');
     let funcionarios = (await this.db.getFuncionarios()).filter(f => f.status === 'Ativo');
+    const nomeFiltro = document.getElementById('searchFuncionarioNome')?.value?.toLowerCase().trim() || '';
+    const matriculaFiltro = document.getElementById('searchFuncionarioMatricula')?.value?.toLowerCase().trim() || '';
 
-    if (filtro) {
-      funcionarios = funcionarios.filter(f => f.nome.toLowerCase().includes(filtro.toLowerCase()));
+    if (nomeFiltro) {
+      funcionarios = funcionarios.filter(f => f.nome.toLowerCase().includes(nomeFiltro));
+    }
+
+    if (matriculaFiltro) {
+      funcionarios = funcionarios.filter(f => (f.matricula || '').toLowerCase().includes(matriculaFiltro));
     }
 
     if (funcionarios.length === 0) {
@@ -333,15 +343,26 @@ class UIManager {
     }
 
     const solicitacoes = await this.db.getSolicitacoes();
-    const retiradas = await this.db.getRetiradasAtivas();
-    const userId = this.auth.getUserId();
+    const pastas = await this.db.getPastas();
+    const pastasPorFuncionario = pastas.reduce((acc, pasta) => {
+      acc[pasta.funcionario_id] = pasta;
+      return acc;
+    }, {});
+    const pendentesPorPasta = solicitacoes.reduce((acc, sol) => {
+      if (!sol.pasta_id) return acc;
+      if (!acc[sol.pasta_id]) acc[sol.pasta_id] = new Set();
+      this.parseEnvelopeList(sol.envelopes_solicitados).forEach(tipo => acc[sol.pasta_id].add(tipo));
+      return acc;
+    }, {});
+    const envelopeCache = {};
 
     let html = `
       <table>
         <thead>
           <tr>
             <th>Nome</th>
-            <th>Departamento</th>
+            <th>Matrícula</th>
+            <th>Setor</th>
             <th>Data Admissão</th>
             <th>Status</th>
             <th>Ações</th>
@@ -351,20 +372,22 @@ class UIManager {
     `;
 
     for (const func of funcionarios) {
-      const solicitacaoPendente = solicitacoes.find(s =>
-        s.usuario_id === userId &&
-        s.funcionario_id === func.id &&
-        s.status === 'pendente'
-      );
-
-      const pasta = (await this.db.getPastas()).find(p => p.funcionario_id === func.id && p.ativa && !p.arquivo_morto);
-      const retiradaAtiva = pasta ? retiradas.find(r => r.pasta_id === pasta.id) : null;
+      const pasta = pastasPorFuncionario[func.id];
+      let envelopesDisponiveis = [];
+      if (pasta) {
+        if (!envelopeCache[pasta.id]) {
+          envelopeCache[pasta.id] = await this.db.getEnvelopesByPasta(pasta.id);
+        }
+        const envelopesPasta = envelopeCache[pasta.id] || [];
+        const pendentesSet = pendentesPorPasta[pasta.id] || new Set();
+        envelopesDisponiveis = envelopesPasta.filter(env => env.status === 'presente' && !pendentesSet.has(env.tipo));
+      }
 
       let actionBtn = '';
-      if (solicitacaoPendente) {
-        actionBtn = '<span class="status status--pending">Solicitação Pendente</span>';
-      } else if (retiradaAtiva) {
-        actionBtn = '<span class="status status--warning">Já Retirado</span>';
+      if (!pasta) {
+        actionBtn = '<span class="status status--pending">Sem pasta ativa</span>';
+      } else if (!envelopesDisponiveis.length) {
+        actionBtn = '<span class="status status--warning">Sem envelopes disponíveis</span>';
       } else {
         actionBtn = `<button class="btn btn--primary btn-sm" onclick="app.abrirModalSolicitacao(${func.id})">Solicitar Retirada</button>`;
       }
@@ -372,6 +395,7 @@ class UIManager {
       html += `
         <tr>
           <td><strong>${func.nome}</strong></td>
+          <td>${func.matricula || '-'}</td>
           <td>${func.departamento}</td>
           <td>${this.formatarData(func.data_admissao)}</td>
           <td><span class="status status--success">${func.status}</span></td>
@@ -405,6 +429,7 @@ class UIManager {
         <thead>
           <tr>
             <th>Funcionário</th>
+            <th>Envelopes</th>
             <th>Data Retirada</th>
             <th>Prazo Devolução</th>
             <th>Dias em Poder</th>
@@ -420,6 +445,8 @@ class UIManager {
       const funcionario = await this.db.getFuncionarioById(retirada.funcionario_id);
       const diasDecorridos = this.calcularDiasDecorridos(retirada.data_retirada);
       const prazo = funcionario?.status === 'Demitido' ? 3 : 7;
+      const envelopes = this.parseEnvelopeList(retirada.envelopes);
+      const envelopeHtml = this.renderEnvelopeChips(envelopes);
       
       let statusClass = 'status--success';
       let statusText = `${diasDecorridos} dias`;
@@ -435,6 +462,7 @@ class UIManager {
       html += `
         <tr>
           <td><strong>${pasta?.nome || 'N/A'}</strong></td>
+          <td>${envelopeHtml}</td>
           <td>${this.formatarDataHora(retirada.data_retirada)}</td>
           <td>${this.formatarDataHora(retirada.data_prevista_retorno)}</td>
           <td><span class="status ${statusClass}">${statusText}</span></td>
@@ -610,6 +638,8 @@ class UIManager {
         <thead>
           <tr>
             <th>Nome</th>
+            <th>Matrícula</th>
+            <th>Setor</th>
             <th>Gaveta</th>
             <th>Gaveteiro</th>
             <th>Localização</th>
@@ -630,6 +660,8 @@ class UIManager {
       html += `
         <tr>
           <td><strong>${pasta.nome}</strong></td>
+          <td>${pasta.funcionario_matricula || '-'}</td>
+          <td>${pasta.funcionario_departamento || '-'}</td>
           <td>${gaveta?.numero || 'N/A'}</td>
           <td>${gaveteiro?.nome || 'N/A'}</td>
           <td>${gaveteiro?.localizacao || 'N/A'}</td>
@@ -756,6 +788,7 @@ class UIManager {
               <tr>
                 <th>Nome</th>
                 <th>Funcionário</th>
+                <th>Matrícula</th>
                 <th>Status Funcionário</th>
                 <th>Data Criação</th>
                 <th>Data Demissão</th>
@@ -770,6 +803,7 @@ class UIManager {
           <tr>
             <td><strong>${pasta.nome}</strong> <span class="arquivo-morto-badge">ARQUIVO MORTO</span></td>
             <td>${pasta.funcionario_nome || 'N/A'}</td>
+            <td>${pasta.matricula || 'N/A'}</td>
             <td><span class="status status--error">${pasta.funcionario_status || 'N/A'}</span></td>
             <td>${this.formatarData(pasta.data_criacao)}</td>
             <td>${pasta.data_demissao ? this.formatarData(pasta.data_demissao) : 'N/A'}</td>
@@ -797,7 +831,6 @@ class UIManager {
    */
   async renderAdmin() {
     await this.renderSolicitacoesPendentes();
-    await this.renderFuncionariosAdmin();
     await this.renderUsuariosAdmin();
   }
 
@@ -823,6 +856,8 @@ class UIManager {
             <th>Data Solicitação</th>
             <th>Usuário</th>
             <th>Funcionário/Arquivo</th>
+            <th>Envelopes</th>
+            <th>Tipo</th>
             <th>Motivo</th>
             <th>Ações</th>
           </tr>
@@ -833,66 +868,27 @@ class UIManager {
     for (const sol of pendentes) {
       const usuario = usuarios.find(u => u.id === sol.usuario_id);
       const funcionario = funcionarios.find(f => f.id === sol.funcionario_id);
+      const envelopes = this.parseEnvelopeList(sol.envelopes_solicitados);
+      const envelopeHtml = this.renderEnvelopeChips(envelopes);
+      const tipoBadge = sol.is_demissao
+        ? '<span class="status status--error">Demissão</span>'
+        : '<span class="status status--success">Retirada Parcial</span>';
 
       html += `
         <tr>
           <td>${this.formatarDataHora(sol.data_solicitacao)}</td>
           <td>${usuario?.username || 'N/A'}</td>
-          <td><strong>${funcionario?.nome || 'N/A'}</strong></td>
+          <td>
+            <strong>${funcionario?.nome || 'N/A'}</strong><br>
+            <small>Matrícula: ${funcionario?.matricula || '-'} | Setor: ${funcionario?.departamento || '-'}</small>
+          </td>
+          <td>${envelopeHtml}</td>
+          <td>${tipoBadge}</td>
           <td>${sol.motivo}</td>
           <td>
             <div class="table-actions">
               <button class="btn btn--primary btn-sm" onclick="app.aprovarSolicitacao(${sol.id})">Aprovar</button>
-              <button class="btn btn--outline btn-sm" onclick="app.rejeitarSolicitacao(${sol.id})">Rejeitar</button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }
-
-    html += '</tbody></table>';
-    container.innerHTML = html;
-  }
-
-  /**
-   * Renderiza gerenciamento de funcionários (admin)
-   */
-  async renderFuncionariosAdmin() {
-    const container = document.getElementById('funcionariosAdminContainer');
-    const funcionarios = await this.db.getFuncionarios(true);
-    
-    let html = `
-      <table>
-        <thead>
-          <tr>
-            <th>Nome</th>
-            <th>Departamento</th>
-            <th>Admissão</th>
-            <th>Demissão</th>
-            <th>Status</th>
-            <th>Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-
-    for (const func of funcionarios) {
-      const statusClass = func.status === 'Ativo' ? 'status--success' : 'status--error';
-      
-      html += `
-        <tr>
-          <td><strong>${func.nome}</strong></td>
-          <td>${func.departamento}</td>
-          <td>${this.formatarData(func.data_admissao)}</td>
-          <td>${func.data_demissao ? this.formatarData(func.data_demissao) : '-'}</td>
-          <td><span class="status ${statusClass}">${func.status}</span></td>
-          <td>
-            <div class="table-actions">
-              <button class="btn btn--outline btn-sm" onclick="app.editarFuncionario(${func.id})">Editar</button>
-              ${func.status === 'Ativo' ?
-                `<button class="btn btn--outline btn-sm" onclick="app.demitirFuncionario(${func.id})">Demitir</button>` :
-                ''
-              }
+              <button class="btn btn--outline btn-sm" onclick="app.abrirModalRejeitarSolicitacao(${sol.id})">Rejeitar</button>
             </div>
           </td>
         </tr>
@@ -1053,5 +1049,24 @@ class UIManager {
       Medicina: 'Medicina do Trabalho'
     };
     return map[tipo] || tipo;
+  }
+
+  parseEnvelopeList(raw) {
+    if (!raw) return [];
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  renderEnvelopeChips(envelopes = []) {
+    if (!envelopes.length) {
+      return '<span class="status status--pending">Nenhum envelope</span>';
+    }
+    return `<div class="envelope-chip-list">${envelopes
+      .map(tipo => `<span class="envelope-chip">${this.formatEnvelopeTipo(tipo)}</span>`)
+      .join('')}</div>`;
   }
 }

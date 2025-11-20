@@ -120,7 +120,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ============================================
   
   getPastas: (gavetaId) => {
-    const baseQuery = `SELECT p.*, f.nome as funcionario_nome 
+    const baseQuery = `SELECT p.*, 
+         f.nome as funcionario_nome,
+         f.departamento as funcionario_departamento,
+         f.matricula as funcionario_matricula,
+         f.data_admissao as funcionario_data_admissao 
          FROM pastas p 
          JOIN funcionarios f ON p.funcionario_id = f.id 
          WHERE p.ativa = 1`;
@@ -139,7 +143,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   getPastaById: (id) => {
     return ipcRenderer.invoke('db:query',
-      `SELECT p.*, f.nome as funcionario_nome, f.departamento 
+      `SELECT p.*, 
+        f.nome as funcionario_nome, 
+        f.departamento, 
+        f.matricula, 
+        f.data_admissao 
        FROM pastas p 
        JOIN funcionarios f ON p.funcionario_id = f.id 
        WHERE p.id = ?`,
@@ -166,7 +174,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
               f.nome as funcionario_nome, 
               f.data_demissao, 
               f.status as funcionario_status,
-              f.departamento 
+              f.departamento,
+              f.matricula 
        FROM pastas p 
        JOIN funcionarios f ON p.funcionario_id = f.id 
        WHERE p.arquivo_morto = 1
@@ -215,18 +224,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   
   createSolicitacao: (solicitacao) => {
-    return ipcRenderer.invoke('db:execute',
-      `INSERT INTO solicitacoes (funcionario_id, usuario_id, motivo, status, data_solicitacao) 
-       VALUES (?, ?, ?, 'pendente', datetime('now'))`,
-      [solicitacao.funcionario_id, solicitacao.usuario_id, solicitacao.motivo]);
+    return ipcRenderer.invoke('solicitacoes:criar', solicitacao);
   },
   
   aprovarSolicitacao: (solicitacaoId) => {
-    return ipcRenderer.invoke('db:execute',
-      `UPDATE solicitacoes 
-       SET status = 'aprovada', data_aprovacao = datetime('now') 
-       WHERE id = ?`,
-      [solicitacaoId]);
+    return ipcRenderer.invoke('solicitacoes:aprovar', solicitacaoId);
   },
   
   // CORRIGIDO: motivo_rejeicao ao invés de observacoes
@@ -273,18 +275,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createRetirada: (retirada) => {
     return ipcRenderer.invoke('db:execute',
       `INSERT INTO retiradas_com_pessoas 
-       (pasta_id, funcionario_id, usuario_id, data_retirada, data_prevista_retorno, status, dias_decorridos) 
-       VALUES (?, ?, ?, datetime('now'), datetime('now', '+7 days'), 'ativo', 0)`,
-      [retirada.pasta_id, retirada.funcionario_id, retirada.usuario_id]);
+       (pasta_id, usuario_id, funcionario_id, envelopes, data_retirada, data_prevista_retorno, status, dias_decorridos) 
+       VALUES (?, ?, ?, ?, datetime('now'), datetime('now', '+7 days'), 'ativo', 0)`,
+      [
+        retirada.pasta_id,
+        retirada.usuario_id,
+        retirada.funcionario_id,
+        JSON.stringify(retirada.envelopes || [])
+      ]);
   },
   
   // CORRIGIDO: data_retorno ao invés de data_devolucao
   finalizarRetirada: (retiradaId) => {
-    return ipcRenderer.invoke('db:execute',
-      `UPDATE retiradas_com_pessoas 
-       SET status = 'devolvido', data_retorno = datetime('now') 
-       WHERE id = ?`,
-      [retiradaId]);
+    return ipcRenderer.invoke('retiradas:finalizar', retiradaId);
   },
   
   atualizarDiasRetiradas: () => {

@@ -6,6 +6,26 @@ const fs = require('fs');
 let mainWindow;
 let db;
 
+function applySchemaMigrations(database) {
+  const columnExists = (table, column) => {
+    const info = database.prepare(`PRAGMA table_info(${table})`).all();
+    return info.some(col => col.name === column);
+  };
+
+  const ensureColumn = (table, column, definition) => {
+    if (!columnExists(table, column)) {
+      console.log(`Adicionando coluna ${column} em ${table}`);
+      database.prepare(`ALTER TABLE ${table} ADD COLUMN ${definition}`).run();
+    }
+  };
+
+  ensureColumn('funcionarios', 'matricula', 'TEXT UNIQUE');
+  ensureColumn('solicitacoes', 'pasta_id', 'INTEGER');
+  ensureColumn('solicitacoes', 'envelopes_solicitados', "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn('solicitacoes', 'is_demissao', 'INTEGER NOT NULL DEFAULT 0 CHECK(is_demissao IN (0, 1))');
+  ensureColumn('retiradas_com_pessoas', 'envelopes', "TEXT NOT NULL DEFAULT '[]'");
+}
+
 /**
  * Inicializa o banco de dados SQLite
  * Cria o schema e seeds se o banco não existir
@@ -46,6 +66,8 @@ function initDatabase() {
   } else {
     console.log('Banco de dados existente encontrado');
   }
+  
+  applySchemaMigrations(db);
   
   return db;
 }
@@ -282,7 +304,11 @@ function setupIpcHandlers() {
   ipcMain.handle('db:getPastas', async (event, gavetaId) => {
     try {
       const result = db.prepare(`
-        SELECT p.*, f.nome as funcionario_nome 
+        SELECT p.*, 
+               f.nome as funcionario_nome,
+               f.departamento as funcionario_departamento,
+               f.matricula as funcionario_matricula,
+               f.data_admissao as funcionario_data_admissao 
         FROM pastas p 
         JOIN funcionarios f ON p.funcionario_id = f.id 
         WHERE p.gaveta_id = ? AND p.ativa = 1
@@ -315,6 +341,33 @@ function setupIpcHandlers() {
         FROM gavetas
         WHERE id = ?
       `);
+      const buscarFuncionarioPorMatricula = db.prepare(`
+        SELECT id
+        FROM funcionarios
+        WHERE matricula = ?
+        LIMIT 1
+      `);
+      const buscarFuncionarioPorNome = db.prepare(`
+        SELECT id
+        FROM funcionarios
+        WHERE lower(nome) = lower(?)
+        LIMIT 1
+      `);
+      const inserirFuncionario = db.prepare(`
+        INSERT INTO funcionarios (nome, matricula, departamento, especialidade, data_admissao, status)
+        VALUES (?, ?, ?, '', ?, 'Ativo')
+      `);
+      const atualizarFuncionarioInfo = db.prepare(`
+        UPDATE funcionarios
+        SET nome = COALESCE(?, nome),
+            departamento = COALESCE(?, departamento),
+            data_admissao = COALESCE(?, data_admissao),
+            matricula = COALESCE(?, matricula)
+        WHERE id = ?
+      `);
+      const verificarPastaAtivaPorFuncionario = db.prepare(`
+        SELECT id FROM pastas WHERE funcionario_id = ? AND ativa = 1 LIMIT 1
+      `);
 
       const transaction = db.transaction((payload) => {
         const gaveta = buscarGaveta.get(payload.gaveta_id);
@@ -326,11 +379,65 @@ function setupIpcHandlers() {
         }
 
         const dataCriacao = payload.data_criacao || new Date().toISOString().split('T')[0];
+        const nomeFuncionarioBase = (payload.funcionario_nome || payload.nome || '').trim();
+        const matriculaValor = (payload.funcionario_matricula || '').trim();
+        const matricula = matriculaValor ? matriculaValor.toUpperCase() : null;
+        const setorInput = (payload.funcionario_setor || '').trim();
+        const setorParaInsercao = setorInput || 'Não informado';
+        const setorParaAtualizacao = setorInput || null;
+        const dataAdmissaoInput = payload.funcionario_data_admissao || null;
+        const dataAdmissaoParaInsercao = dataAdmissaoInput || dataCriacao;
+        const dataAdmissaoParaAtualizacao = dataAdmissaoInput || null;
 
+        let funcionarioId = payload.funcionario_id;
+        if (!funcionarioId) {
+          if (matricula) {
+            const existentePorMatricula = buscarFuncionarioPorMatricula.get(matricula);
+            if (existentePorMatricula) {
+              funcionarioId = existentePorMatricula.id;
+            }
+          }
+
+          const nomeFuncionario = nomeFuncionarioBase;
+          if (!funcionarioId && !nomeFuncionario) {
+            throw new Error('Informe o nome do funcionário para criar a pasta.');
+          }
+
+          if (!funcionarioId) {
+            const existente = buscarFuncionarioPorNome.get(nomeFuncionario);
+            if (existente) {
+              funcionarioId = existente.id;
+            }
+          }
+
+          if (!funcionarioId) {
+            const novoFuncionario = inserirFuncionario.run(
+              nomeFuncionario,
+              matricula,
+              setorParaInsercao,
+              dataAdmissaoParaInsercao
+            );
+            funcionarioId = novoFuncionario.lastInsertRowid;
+          }
+        }
+
+        atualizarFuncionarioInfo.run(
+          nomeFuncionarioBase || null,
+          setorParaAtualizacao,
+          dataAdmissaoParaAtualizacao,
+          matricula || null,
+          funcionarioId
+        );
+
+        const pastaAtiva = verificarPastaAtivaPorFuncionario.get(funcionarioId);
+        if (pastaAtiva) {
+          throw new Error('Este funcionário já possui uma pasta ativa.');
+        }
+        const pastaNome = (payload.nome || nomeFuncionarioBase);
         const result = insertPasta.run(
           payload.gaveta_id,
-          payload.funcionario_id,
-          payload.nome,
+          funcionarioId,
+          pastaNome,
           dataCriacao,
           payload.ordem || 0
         );
@@ -378,6 +485,191 @@ function setupIpcHandlers() {
     }
   });
 
+  ipcMain.handle('solicitacoes:aprovar', async (event, solicitacaoId) => {
+    try {
+      const selecionarSolicitacao = db.prepare(`
+        SELECT s.*, p.gaveta_id
+        FROM solicitacoes s
+        JOIN pastas p ON s.pasta_id = p.id
+        WHERE s.id = ?
+      `);
+      const atualizarSolicitacao = db.prepare(`
+        UPDATE solicitacoes
+        SET status = 'aprovada', data_aprovacao = datetime('now')
+        WHERE id = ?
+      `);
+      const selecionarEnvelope = db.prepare(`
+        SELECT status, tipo
+        FROM envelopes
+        WHERE pasta_id = ? AND tipo = ?
+        LIMIT 1
+      `);
+      const contarEnvelopesRetirados = db.prepare(`
+        SELECT COUNT(*) as total
+        FROM envelopes
+        WHERE pasta_id = ? AND status <> 'presente'
+      `);
+      const inserirRetirada = db.prepare(`
+        INSERT INTO retiradas_com_pessoas 
+          (pasta_id, usuario_id, funcionario_id, envelopes, data_retirada, data_prevista_retorno, status, dias_decorridos)
+        VALUES (?, ?, ?, ?, datetime('now'), datetime('now', '+7 days'), 'ativo', 0)
+      `);
+      const atualizarEnvelopeStatus = db.prepare(`
+        UPDATE envelopes 
+        SET status = 'retirado'
+        WHERE pasta_id = ? AND tipo = ?
+      `);
+      const atualizarFuncionarioDemissao = db.prepare(`
+        UPDATE funcionarios
+        SET status = 'Demitido', data_demissao = ?
+        WHERE id = ?
+      `);
+      const arquivarPasta = db.prepare('UPDATE pastas SET ativa = 0, arquivo_morto = 1 WHERE id = ?');
+      const liberarEspaco = db.prepare(`
+        UPDATE gavetas
+        SET ocupacao_atual = CASE WHEN ocupacao_atual > 0 THEN ocupacao_atual - 1 ELSE 0 END
+        WHERE id = ?
+      `);
+
+      const transaction = db.transaction((id) => {
+        const solicitacao = selecionarSolicitacao.get(id);
+        if (!solicitacao) {
+          throw new Error('Solicitação não encontrada.');
+        }
+        if (solicitacao.status !== 'pendente') {
+          throw new Error('Solicitação já foi processada.');
+        }
+        if (!solicitacao.pasta_id) {
+          throw new Error('Solicitação sem pasta vinculada.');
+        }
+
+        let envelopesSelecionados = [];
+        try {
+          envelopesSelecionados = JSON.parse(solicitacao.envelopes_solicitados || '[]');
+        } catch (err) {
+          console.warn('Erro ao interpretar envelopes da solicitação:', err);
+        }
+
+        if (!solicitacao.is_demissao && envelopesSelecionados.length === 0) {
+          throw new Error('Nenhum envelope selecionado para retirada.');
+        }
+
+        atualizarSolicitacao.run(id);
+
+        if (solicitacao.is_demissao) {
+          const pendentes = contarEnvelopesRetirados.get(solicitacao.pasta_id);
+          if (pendentes.total > 0) {
+            throw new Error('Existem envelopes ainda retirados. Aguarde a devolução antes de concluir a demissão.');
+          }
+          const hoje = new Date().toISOString().split('T')[0];
+          atualizarFuncionarioDemissao.run(hoje, solicitacao.funcionario_id);
+          arquivarPasta.run(solicitacao.pasta_id);
+          liberarEspaco.run(solicitacao.gaveta_id);
+          return { mode: 'demissao' };
+        }
+
+        envelopesSelecionados.forEach(tipo => {
+          const envelope = selecionarEnvelope.get(solicitacao.pasta_id, tipo);
+          if (!envelope) {
+            throw new Error(`Envelope ${tipo} não encontrado para esta pasta.`);
+          }
+          if (envelope.status !== 'presente') {
+            throw new Error(`Envelope ${tipo} já está retirado.`);
+          }
+          atualizarEnvelopeStatus.run(solicitacao.pasta_id, tipo);
+        });
+
+        const retiradaResult = inserirRetirada.run(
+          solicitacao.pasta_id,
+          solicitacao.usuario_id,
+          solicitacao.funcionario_id,
+          JSON.stringify(envelopesSelecionados)
+        );
+
+        return { mode: 'retirada', retiradaId: retiradaResult.lastInsertRowid };
+      });
+
+      const resultado = transaction(solicitacaoId);
+      return { success: true, ...resultado };
+    } catch (error) {
+      console.error('Erro ao aprovar solicitação:', error);
+      return { success: false, message: error.message };
+    }
+  });
+
+  ipcMain.handle('solicitacoes:criar', async (event, solicitacao) => {
+    try {
+      if (!solicitacao?.pasta_id) {
+        throw new Error('Pasta não informada.');
+      }
+      if (!solicitacao?.envelopes || solicitacao.envelopes.length === 0) {
+        throw new Error('Selecione ao menos um envelope.');
+      }
+
+      const selectPendentes = db.prepare(`
+        SELECT envelopes_solicitados
+        FROM solicitacoes
+        WHERE pasta_id = ? AND status = 'pendente'
+      `);
+      const selectEnvelope = db.prepare(`
+        SELECT status
+        FROM envelopes
+        WHERE pasta_id = ? AND tipo = ?
+        LIMIT 1
+      `);
+      const insertSolicitacao = db.prepare(`
+        INSERT INTO solicitacoes 
+          (funcionario_id, usuario_id, pasta_id, motivo, status, data_solicitacao, envelopes_solicitados, is_demissao)
+        VALUES (?, ?, ?, ?, 'pendente', datetime('now'), ?, ?)
+      `);
+
+      const transaction = db.transaction((payload) => {
+        const envelopesSelecionados = Array.from(new Set(payload.envelopes));
+        payload.envelopes = envelopesSelecionados;
+        const reservados = new Set();
+        selectPendentes.all(payload.pasta_id).forEach(row => {
+          try {
+            const list = JSON.parse(row.envelopes_solicitados || '[]');
+            if (Array.isArray(list)) {
+              list.forEach(tipo => reservados.add(tipo));
+            }
+          } catch (err) {
+            console.warn('Erro ao interpretar envelopes pendentes:', err);
+          }
+        });
+
+        envelopesSelecionados.forEach(tipo => {
+          if (reservados.has(tipo)) {
+            throw new Error(`Envelope ${tipo} já reservado em outra solicitação pendente.`);
+          }
+          const envelope = selectEnvelope.get(payload.pasta_id, tipo);
+          if (!envelope) {
+            throw new Error(`Envelope ${tipo} não encontrado para esta pasta.`);
+          }
+          if (envelope.status !== 'presente') {
+            throw new Error(`Envelope ${tipo} não está disponível para retirada.`);
+          }
+        });
+
+        const result = insertSolicitacao.run(
+          payload.funcionario_id,
+          payload.usuario_id,
+          payload.pasta_id,
+          payload.motivo,
+          JSON.stringify(envelopesSelecionados),
+          payload.is_demissao ? 1 : 0
+        );
+        return result.lastInsertRowid;
+      });
+
+      const solicitacaoId = transaction(solicitacao);
+      return { success: true, lastInsertRowid: solicitacaoId };
+    } catch (error) {
+      console.error('Erro ao criar solicitação:', error);
+      return { success: false, message: error.message };
+    }
+  });
+
   // Solicitações
   ipcMain.handle('db:getSolicitacoes', async () => {
     try {
@@ -410,6 +702,48 @@ function setupIpcHandlers() {
       return { success: true, data: result };
     } catch (error) {
       console.error('Erro ao buscar retiradas:', error);
+      return { success: false, message: error.message };
+    }
+  });
+
+  ipcMain.handle('retiradas:finalizar', async (event, retiradaId) => {
+    try {
+      const selecionarRetirada = db.prepare('SELECT * FROM retiradas_com_pessoas WHERE id = ?');
+      const atualizarRetirada = db.prepare(`
+        UPDATE retiradas_com_pessoas 
+        SET status = 'devolvido', data_retorno = datetime('now') 
+        WHERE id = ?
+      `);
+      const atualizarEnvelopeStatus = db.prepare(`
+        UPDATE envelopes 
+        SET status = 'presente'
+        WHERE pasta_id = ? AND tipo = ?
+      `);
+
+      const transaction = db.transaction((id) => {
+        const retirada = selecionarRetirada.get(id);
+        if (!retirada) {
+          throw new Error('Retirada não encontrada.');
+        }
+        if (retirada.status !== 'ativo') {
+          throw new Error('Retirada já finalizada.');
+        }
+
+        let envelopes = [];
+        try {
+          envelopes = JSON.parse(retirada.envelopes || '[]');
+        } catch (err) {
+          console.warn('Erro ao interpretar envelopes da retirada:', err);
+        }
+
+        envelopes.forEach(tipo => atualizarEnvelopeStatus.run(retirada.pasta_id, tipo));
+        atualizarRetirada.run(id);
+      });
+
+      transaction(retiradaId);
+      return { success: true };
+    } catch (error) {
+      console.error('Erro ao finalizar retirada:', error);
       return { success: false, message: error.message };
     }
   });
