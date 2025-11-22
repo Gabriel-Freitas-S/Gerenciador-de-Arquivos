@@ -90,6 +90,13 @@ dist/Sistema de Arquivos Hospital-Setup-1.0.0.exe
 - SQLite (better-sqlite3)
 - HTML5 / CSS3 / JavaScript
 
+## 🎨 Preferências de Tema
+
+- O layout respeita automaticamente o tema configurado no sistema operacional (claro ou escuro).
+- O switch com ícones de sol e lua fica ao lado do nome do usuário (parte inferior da barra lateral).
+- Um clique sempre alterna entre o visual claro e escuro; se o resultado coincidisse com o tema do sistema, o clique seguinte retorna ao modo padrão automaticamente.
+- A escolha atual fica salva no dispositivo e será aplicada na próxima abertura do aplicativo.
+
 ## 📂 Estrutura do Projeto
 
 ```
